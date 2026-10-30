@@ -32,8 +32,6 @@ func run() -> void:
 	var d := director
 	var camera := d.hand.camera
 	var table := d.table
-	camera.cine_transform = camera.global_transform
-	camera.cine_blend = 1.0
 	var indicator := table.indicator
 	var shown := indicator.transform
 	# Everything starts on the pile, face down.
@@ -44,6 +42,16 @@ func run() -> void:
 			_flights.append([tile, tile.transform, d.seats[p].rack.global_position])
 			tile.global_transform = Transform3D(Basis(Vector3.UP, randf_range(-0.2, 0.2)) * Table.FACE_DOWN, pile + Vector3(0, 0.001 * _flights.size(), 0))
 	indicator.transform = Transform3D(Basis(Vector3.UP, 0.25) * Table.FACE_DOWN, shown.origin)
+	await get_tree().process_frame # (from the menu the camera is still on its way into the player's eyes)
+	if _skipped:
+		_land_all()
+		indicator.transform = shown
+		running = false
+		finished.emit()
+		queue_free()
+		return
+	camera.cine_transform = camera.global_transform
+	camera.cine_blend = 1.0
 
 	var from := camera.cine_transform
 	var over := _overview_pose()
