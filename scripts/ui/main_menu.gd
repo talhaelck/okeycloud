@@ -40,6 +40,7 @@ var _howto := PanelContainer.new()
 var _settings: SettingsMenu
 var _time := 0.0
 var _rack_tween: Tween
+var _rack_shift := 0.0 # how far below its place the rack is (it is anchored to the bottom: its offsets move)
 
 
 func _ready() -> void:
@@ -232,10 +233,10 @@ func _arrive() -> void:
 	swing.tween_interval(3.5)
 	swing.tween_property(_hanger, "rotation", -0.012, 2.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	swing.tween_property(_hanger, "rotation", 0.012, 2.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-	_rack.position.y = 260.0
+	_shift_rack(260.0)
 	var rise := _rack.create_tween()
 	rise.tween_interval(0.2)
-	rise.tween_property(_rack, "position:y", 0.0, 0.7).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	rise.tween_method(_shift_rack, 260.0, 0.0, 0.7).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	for i in _tiles.size():
 		var tile := _tiles[i]
 		var rest := tile.position.y
@@ -308,19 +309,25 @@ func _show_rack(on: bool) -> void:
 	if Fade.instant:
 		_rack.visible = on
 		_hanger.visible = on
-		_rack.position.y = 0.0
+		_shift_rack(0.0)
 		_hanger.position.y = 0.0
 	else:
 		_rack.visible = true
 		_hanger.visible = true
 		_rack_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT if on else Tween.EASE_IN)
-		_rack_tween.tween_property(_rack, "position:y", 0.0 if on else 520.0, 0.35)
+		_rack_tween.tween_method(_shift_rack, _rack_shift, 0.0 if on else 520.0, 0.35)
 		_rack_tween.tween_property(_hanger, "position:y", 0.0 if on else -470.0, 0.35)
 		_rack_tween.chain().tween_callback(func() -> void:
 			_rack.visible = on
 			_hanger.visible = on)
 	if on:
 		_tiles[0].grab_focus.call_deferred()
+
+
+func _shift_rack(amount: float) -> void:
+	_rack_shift = amount
+	_rack.offset_top = -500.0 + amount
+	_rack.offset_bottom = -30.0 + amount
 
 
 # A page fades up from a little below its place, and sinks away.
