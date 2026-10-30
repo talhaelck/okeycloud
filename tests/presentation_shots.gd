@@ -1,8 +1,8 @@
 extends SceneTree
 ## Screenshots of the shows and the new screens, to check by eye (windowed, with --fixed-fps 30 so the moments land):
-##   godot --path . --fixed-fps 30 --script tests/presentation_shots.gd -- <out prefix> [intro|menu|deal|pause]
+##   godot --path . --fixed-fps 30 --script tests/presentation_shots.gd -- <out prefix> [intro|menu|deal|pause|winner]
 ## intro: the doorway, the turn, the title, the lift; menu: the arrival, Ayarlar; deal: the tiles in flight and the
-## okey stamp; pause: the Esc menu and its Ayarlar page.
+## okey stamp; pause: the Esc menu and its Ayarlar page; winner: the winner's moment after the last hand.
 
 var prefix := "screenshots/show"
 var what: Array[String] = []
@@ -53,6 +53,23 @@ func _init() -> void:
 		await _shot("pause_1_menu", 12)
 		main._pause._show_settings()
 		await _shot("pause_2_settings", 4)
+		main._pause.close()
+		await _frames(8)
+	if what.is_empty() or what.has("winner"):
+		var director: GameDirector = main.director
+		var game: OkeyGame = director.game
+		for watcher: Watcher in main.watchers:
+			watcher.process_mode = Node.PROCESS_MODE_DISABLED
+		game.settings.turn_time_limit = 0
+		while game.history.size() < game.settings.hands_per_match - 1:
+			game.history.append([{"score": 40, "lines": []}, {"score": 101, "lines": []}, {"score": 30, "lines": []}, {"score": 60, "lines": []}])
+		game.totals.assign([120, 303, 90, 180])
+		game.finisher = 2
+		game.phase = OkeyGame.Phase.OVER
+		game.opened[2] = OkeyGame.Opened.SETS
+		director._end_hand()
+		await _shot("winner_1_face", 128)
+		await _shot("winner_2_board", 150)
 	quit()
 
 

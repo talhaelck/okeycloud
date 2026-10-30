@@ -19,8 +19,8 @@ const DOOR_OPEN := -1.35 # radians the leaf swings into the room (as the visitor
 # Where the camera goes (x, y, z) and what it looks at, in order; the path curves through them and ends at the
 # menu's first pose (MainMenu.orbit_pose(0.0)), which is added in _init.
 const PATH := [
-	[Vector3(1.25, 1.48, 2.75), Vector3(1.3, 1.25, 3.75)],   # in the doorway, looking back at the open door
-	[Vector3(1.0, 1.5, 2.85), Vector3(-2.6, 1.05, 1.4)],     # turning: the stove and the cat
+	[Vector3(0.75, 1.5, 2.2), Vector3(1.3, 1.3, 3.72)],      # a few steps in, looking back at the door swinging open
+	[Vector3(0.85, 1.52, 2.5), Vector3(-2.6, 1.05, 1.4)],    # turning: the stove and the cat
 	[Vector3(0.55, 1.55, 2.8), Vector3(-1.5, 1.0, -0.6)],    # the table comes round, the regulars beyond it
 	[Vector3(0.75, 1.65, 2.55), Vector3(0.1, 0.9, -0.1)],    # over your own chair, toward the others
 ]
