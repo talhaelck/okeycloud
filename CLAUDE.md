@@ -112,9 +112,18 @@
   and scale with distance. The banner shows "Sıra sende" with the clock, or a small "Sıra: <name>".
 - `tests/live_hands_audit.gd` plays the real game with greedy bots and checks every hand joint, held tile, wrist snap
   (m/s^2) and board crossing in every frame (in `run_all.sh`; fails on snaps, `--strict` also on penetrations; `--shots=<prefix>`
-  dumps the frames before the first fingers-under-felt). Known open issue: fingers go 3-9 cm under the felt when a
-  tile is taken off the felt or pulled from the pile, and graze the rack board (1-3 cm): the hand is pitched steeply
-  at far reaches. Changing `FELT_FLEX` does not fix it. Hands pass over the board, never through (`_board_safe_path`).
+  dumps the frames before the first fingers-under-felt). Hands pass over the board, never through (`_board_safe_path`).
+  A tile on the felt just beyond his own board (the pull spot, `Bot.PULL_SPOT`) is taken with the hand hanging from a
+  wrist over the board (`DayiHands.STEEP_FLEX`, `_felt_flex`): held level there, the wrist went through the board and
+  the folded fingers 9 cm under the felt. The hang stays at 30-45° because the elbow hangs low (`ELBOW` pole) and
+  the arm is nearly straight at that spot, so the wrist rests on the board's top edge and the thumb and curled fingers
+  still touch the board's top corner (<= 2.2 cm, listed by the audit, `--strict` still fails on them). Tried and
+  rejected: a raised elbow pole (any weight strong enough to lift it rolls the arm chain through ArmIK's shortest-arc
+  aims and the hand hangs sideways; a plane-aligned IK did not cure it and changed the resting hands), taller
+  shoulders (the whole body scales, the elbow drops further), a farther pull spot (the arm locks straight and the
+  pinch falls short; the meld rows start 2 cm further on), a pull spot beside the rack's end (discard rows and the
+  tea glass are there). The arm is handed from the clip in `BLEND_TIME`: blended over the whole reach, the pinch
+  point ran well below its planned path.
 - Mixamo downloads must use Skeleton LOD "Standard Skeleton (65)"; mixamo_import.py refuses rigs without finger bones.
 - `tools/blender/neck_weights.py` (run by mixamo_import.py) gives the chin and jowls fully to the head bone; Mixamo
   splits them between head and chest and the double chin stretches when the head turns. Head turning is shared
