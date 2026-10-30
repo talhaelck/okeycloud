@@ -156,11 +156,15 @@ func _double_click_to_throw() -> void:
 	check(rack.tiles().size() == rack_count - 1 and rack.tiles().size() == game.expected[0], "his rack is one tile fewer")
 
 	# A costly throw (an okey): the first double-click warns and puts it back in its slot, the second throws it.
-	# (The bots must play out their turns first: when a bot ends his turn the director forgets the warning.)
-	for i in 4000:
-		if game.turn == 0 and not director._bots.any(func(b: Bot) -> bool: return b.busy()):
-			break
+	# (The bots must play out their turns first: when a bot ends his turn the director forgets the warning. Setting
+	# game.turn by hand while a bot is still busy lets his turn end land in the middle of the warning.)
+	var waited := 0
+	while waited < 4000 and not (game.turn == 0 and game.phase != OkeyGame.Phase.OVER
+			and not director._bots.any(func(b: Bot) -> bool: return b.busy())):
 		await process_frame
+		waited += 1
+	check(waited < 4000, "the bots played their turns out and it came back to him (%d frames)" % waited)
+	await wait(2)
 	game.turn = 0
 	game.phase = OkeyGame.Phase.PLAY
 	var okey: Tile = null
