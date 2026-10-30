@@ -12,7 +12,7 @@ extends Node
 
 const THINK := Vector2(0.7, 1.8)
 ## Where he drags a tile from the pile to before picking it up: on the felt in front of his rack (seat space).
-const PULL_SPOT := Vector3(0.2, Table.TOP, 0.46)
+const PULL_SPOT := Vector3(0.2, Table.TOP, 0.47)
 const MISCHIEF_EVERY := Vector2(1.2, 2.6) # seconds between looks for a chance to steal
 
 var seat_index := 0

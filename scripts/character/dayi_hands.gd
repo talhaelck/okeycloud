@@ -18,6 +18,10 @@ const PINCH := {
 	"Ring": [64.0, 72.0, 46.0], "Pinky": [68.0, 74.0, 48.0],
 }
 const REACH_TIME := 0.6
+## The arm is handed from the clip to the action (weight 0 -> 1) in this time, at the start of the reach: the
+## wrist is blended between the clip's place and the action's goal by the weight, so while it is blending the pinch
+## point falls short of its planned path (it went through the board when blended over the whole reach).
+const BLEND_TIME := 0.22
 const SETTLE_TIME := 0.18
 const CARRY_TIME := 0.55
 const LIFT := 0.035 # tiles come this far up off the felt before being carried
@@ -31,6 +35,11 @@ const LEAN := 0.4 # radians the upper body leans in for the farthest reach
 ## neither flip over nor wring the wrist.
 const RACK_FLEX := 0.0
 const FELT_FLEX := 25.0
+## A tile on the felt just beyond his own rack: the hand is longer than the gap, so it hangs steeply down from a
+## wrist held over the board (a level hand there put the wrist and palm through the board and the folded fingers
+## under the felt). How far beyond the board's face that applies, and the flex it takes.
+const NEAR_BOARD := 0.3
+const STEEP_FLEX := 90.0
 ## A natural elbow direction (out, down, back) in the dayı's space for his right arm; x flips for the left.
 const ELBOW := Vector3(0.6, -0.6, 0.5)
 const LEAN_SPEED := 0.9 # radians per second the body leans in or straightens up
@@ -38,9 +47,10 @@ const EASY_REACH := 0.75 # of his arm's length: closer than this he does not lea
 
 ## How far (radians) he leans in for a reach at arm's length: LEAN normally, STRETCH while snatching something far.
 const STRETCH := 0.6
-const PULL_BEYOND := 0.10 # how far past his rack's board he puts his fingers to drag a tile from the pile
-const BOARD_CLEARANCE := 0.05 # the pinch point passes this far above a rack's top edge
-const WRIST_CLEARANCE := 0.09 # the wrist, which has the fingers hanging in front of it
+const PULL_BEYOND := 0.12 # how far past his rack's board he puts his fingers to drag a tile from the pile
+const BOARD_CLEARANCE := 0.07 # the pinch point passes this far above a rack's top edge
+const WRIST_CLEARANCE := 0.12 # the wrist, which has the fingers hanging in front of it
+const FLEX_SHARE := 0.45 # of a carry's time in which the wrist takes its new bend
 const OFFSET_EASE := 0.3 # share of the pinch offset's change taken per frame (see _pose)
 
 const LEAN_TURN := 2.0 # how fast the way he leans swings round (per second, eased)
@@ -149,7 +159,7 @@ func discard(rack: Rack, slot: int, table: Table, spot: Vector3, place := Callab
 	# Out over the end of the rack at the height it left the slot, then down beside it.
 	var over := Vector3(spot.x, hand.point.y, spot.z)
 	_plan_lean(hand, spot)
-	await _carry(hand, over, CARRY_TIME, FELT_FLEX)
+	await _carry(hand, over, CARRY_TIME, _felt_flex(spot))
 	await _carry(hand, release + Vector3.UP * 0.05, CARRY_TIME * 0.6, -1.0, 0.0)
 	var lay := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	lay.tween_property(hand, "flat", 1.0, SETTLE_TIME * 1.5)
@@ -186,18 +196,17 @@ func pull(tile: Tile, spot: Vector3) -> void:
 	reach.y = spot.y + TileFactory.SIZE.z
 	dayi.look_at_point(start)
 	_plan_lean(hand, reach)
-	hand.point = hand.pinch
-	hand.flex = FELT_FLEX
+	_start(hand)
 	var blend := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT).set_parallel()
-	blend.tween_property(hand, "weight", 1.0, REACH_TIME)
-	blend.tween_property(hand, "fold", 0.6, REACH_TIME)
+	blend.tween_property(hand, "weight", 1.0, BLEND_TIME)
+	blend.tween_property(hand, "fold", 1.0, REACH_TIME)
 	# The tile comes to meet the fingertips while the hand goes out (he slides it toward himself with two fingers).
 	var from := tile.global_position
 	var meet := dayi.to_global(Vector3(reach.x, start.y, reach.z))
 	var slide := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	slide.tween_interval(REACH_TIME * 0.5)
 	slide.tween_method(func(t: float) -> void: tile.global_position = from.lerp(meet, t), 0.0, 1.0, REACH_TIME * 0.6)
-	await _carry(hand, reach + Vector3.UP * 0.02, REACH_TIME)
+	await _carry(hand, reach + Vector3.UP * 0.02, REACH_TIME, _felt_flex(reach))
 	await _move(hand, reach, SETTLE_TIME)
 	_plan_lean(hand, spot)
 	var back := create_tween()
@@ -241,12 +250,11 @@ func snatch(tile: Tile, detach: Callable, rack: Rack, to: int) -> void:
 	reach.y = maxf(reach.y, top.y)
 	dayi.look_at_point(top)
 	_plan_lean(hand, top)
-	hand.point = hand.pinch
-	hand.flex = RACK_FLEX if standing else FELT_FLEX
+	_start(hand)
 	var blend := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT).set_parallel()
-	blend.tween_property(hand, "weight", 1.0, REACH_TIME * 1.2)
+	blend.tween_property(hand, "weight", 1.0, BLEND_TIME)
 	blend.tween_property(hand, "fold", 1.0, REACH_TIME)
-	await _carry(hand, reach + Vector3.UP * 0.04, REACH_TIME * 1.2)
+	await _carry(hand, reach + Vector3.UP * 0.04, REACH_TIME * 1.2, RACK_FLEX if standing else _felt_flex(top))
 	await _move(hand, reach, SETTLE_TIME)
 	if not detach.call():
 		await _retreat(hand)
@@ -312,12 +320,11 @@ func gesture(point: Vector3, time := 0.8) -> void:
 	reach.y = maxf(reach.y, point.y + 0.03)
 	dayi.look_at_point(point)
 	_plan_lean(hand, reach)
-	hand.point = hand.pinch
-	hand.flex = FELT_FLEX
+	_start(hand)
 	var blend := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT).set_parallel()
-	blend.tween_property(hand, "weight", 1.0, REACH_TIME)
+	blend.tween_property(hand, "weight", 1.0, BLEND_TIME)
 	blend.tween_property(hand, "fold", 0.3, REACH_TIME)
-	await _carry(hand, reach, REACH_TIME)
+	await _carry(hand, reach, REACH_TIME, FELT_FLEX)
 	await get_tree().create_timer(time * 0.5).timeout
 	await _retreat(hand)
 
@@ -335,7 +342,7 @@ func pick_up(tile: Tile, table: Table, rack: Rack, to: int) -> void:
 		return
 	hand.busy = true
 	hand.action = "pick_up"
-	await _take(hand, top, FELT_FLEX, func() -> void: table.release(tile), tile)
+	await _take(hand, top, _felt_flex(top), func() -> void: table.release(tile), tile)
 	# Straight up to above the rack's tiles, across, and down into the slot.
 	var above := _slot_top(rack, to) + Vector3.UP * RACK_LIFT
 	_plan_lean(hand, above)
@@ -351,13 +358,12 @@ func _take(hand: HandState, top: Vector3, flex: float, detach: Callable, tile: T
 	dayi.look_at_point(top)
 	_plan_lean(hand, top)
 	await get_tree().create_timer(0.15).timeout
-	hand.point = hand.pinch
-	hand.flex = flex
+	_start(hand)
 	var blend := create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT).set_parallel()
-	blend.tween_property(hand, "weight", 1.0, REACH_TIME)
+	blend.tween_property(hand, "weight", 1.0, BLEND_TIME)
 	# The hand shapes itself on the way, as people's do: three fingers fold, thumb and index stay open to pinch.
 	blend.tween_property(hand, "fold", 1.0, REACH_TIME * 0.8)
-	await _carry(hand, top + Vector3.UP * 0.03, REACH_TIME)
+	await _carry(hand, top + Vector3.UP * 0.03, REACH_TIME, flex)
 	await _move(hand, top, SETTLE_TIME)
 	hand.miss = hand.pinch.distance_to(top)
 	await _close(hand, 1.0)
@@ -369,6 +375,14 @@ func _take(hand: HandState, top: Vector3, flex: float, detach: Callable, tile: T
 	hand.attach = tile
 	await get_tree().process_frame
 	await _move(hand, top + Vector3.UP * lift, SETTLE_TIME * (1.0 + lift * 6.0))
+
+
+# An action starts from the hand as it is now: the pinch point where it stands and, if the clip still has the arm,
+# the clip's own wrist; the wrist then bends on the way (`_carry`'s flex), not before the hand has left the felt.
+func _start(hand: HandState) -> void:
+	hand.point = hand.pinch
+	if hand.weight < 0.01:
+		hand.flex = 0.0
 
 
 # Opens the fingers on the held tile and returns it (the caller puts it somewhere).
@@ -403,6 +417,8 @@ func _move(hand: HandState, to: Vector3, time: float) -> void:
 
 
 ## Moves the pinch point along an arc that rises `arc` mid-way, easing in and out; bends the wrist to `flex` if given.
+## The wrist has bent by the time the hand comes down on the target: a hand still levelling out while it came down
+## just beyond his rack put its knuckles into the board.
 func _carry(hand: HandState, to: Vector3, time: float, flex := -1.0, arc := ARC) -> void:
 	var from := hand.point
 	var from_flex := hand.flex
@@ -412,7 +428,7 @@ func _carry(hand: HandState, to: Vector3, time: float, flex := -1.0, arc := ARC)
 	tween.tween_method(func(t: float) -> void:
 		var e := smoothstep(0.0, 1.0, t)
 		hand.point = _point_on(path, e) + Vector3.UP * arc * sin(PI * e)
-		hand.flex = lerpf(from_flex, to_flex, e)
+		hand.flex = lerpf(from_flex, to_flex, smoothstep(0.0, FLEX_SHARE, t))
 	, 0.0, 1.0, time)
 	await tween.finished
 
@@ -423,6 +439,12 @@ func _slot_top(rack: Rack, slot: int) -> Vector3:
 	var at := rack.slot_global_transform(slot)
 	var toward_him := at.basis.z.normalized() * TileFactory.SIZE.z * 0.5
 	return dayi.to_local(at.origin + at.basis.y.normalized() * (TileFactory.SIZE.y * 0.5 + 0.004) + toward_him)
+
+
+# How far the wrist bends for a tile lying at `point` (his space): steeply where his own board is in the way.
+func _felt_flex(point: Vector3) -> float:
+	var beyond := _board_face_z() - point.z
+	return STEEP_FLEX if beyond > -0.05 and beyond < NEAR_BOARD and absf(point.x) < Rack.LENGTH * 0.5 + 0.05 else FELT_FLEX
 
 
 # Where the front face of his own rack's board is along his forward axis (his space).
@@ -508,7 +530,9 @@ func _process_modification() -> void:
 	var to_skeleton := to_dayi.affine_inverse()
 	var lean := 0.0
 	for hand in hands:
-		lean = maxf(lean, hand.weight * hand.lean)
+		# Hanging the hand over his rack (STEEP_FLEX) costs reach, so that far reach gets the stretch.
+		var raised := clampf((hand.flex * hand.weight - FELT_FLEX) / (STEEP_FLEX - FELT_FLEX), 0.0, 1.0)
+		lean = maxf(lean, hand.weight * hand.lean * lerpf(lean_limit, STRETCH, raised))
 		if hand.weight > 0.001 or hand.grip > 0.001 or hand.fold > 0.001:
 			_pose(skeleton, hand, to_skeleton)
 		hand.pinch = to_dayi * _pinch_point(skeleton, hand)
@@ -522,7 +546,7 @@ func _process_modification() -> void:
 			var held := _hand_world(hand) * hand.tile_offset
 			hand.tile.global_transform = held.interpolate_with(hand.flat_pose, hand.flat) if hand.flat > 0.0 else held
 	# Ease the body toward the lean the reach needs; changing targets mid-reach must not jolt him.
-	dayi.lean = move_toward(dayi.lean, lean * lean_limit, LEAN_SPEED * get_process_delta_time())
+	dayi.lean = move_toward(dayi.lean, lean, LEAN_SPEED * get_process_delta_time())
 	dayi.lean_dir = dayi.lean_dir.slerp(_lean_goal, minf(1.0, LEAN_TURN * get_process_delta_time())).normalized()
 
 
