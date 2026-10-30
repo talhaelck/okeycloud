@@ -1,11 +1,13 @@
 class_name SettingsMenu
 extends PanelContainer
-## "Ayarlar": the player's own settings (Prefs) on a sheet of paper: sound, picture and the shows, in three groups.
-## Each row is the setting's name with a line under it saying what it does, and a switch or a number on the right;
-## a changed row shows a small Sıfırla tile. Every change is applied and kept at once. Opened from the main menu's
-## AYARLAR tile and from the pause menu; Esc or Tamam closes it (`closed`).
+## "Ayarlar": the player's own settings (Prefs) on a sheet of paper, in two columns: sound and the shows on the
+## left, the picture on the right. Each row is the setting's name with a line under it saying what it does, and a
+## switch or a number on the right; a changed row shows a small Sıfırla tile. Every change is applied and kept at
+## once. Opened from the main menu's AYARLAR tile and from the pause menu; Esc or Tamam closes it (`closed`).
 
 signal closed
+
+const COLUMNS := [[0, 2], [1]] # groups of Prefs.GROUPS per column
 
 var _controls := {} # key -> Switch or Stepper
 var _resets := {} # key -> Button
@@ -16,9 +18,9 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_CENTER)
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	grow_vertical = Control.GROW_DIRECTION_BOTH
-	custom_minimum_size = Vector2(1180, 0)
+	custom_minimum_size = Vector2(1560, 0)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
+	box.add_theme_constant_override("separation", 14)
 	add_child(box)
 	var head := HBoxContainer.new()
 	box.add_child(head)
@@ -35,19 +37,32 @@ func _ready() -> void:
 	note.add_theme_font_size_override("font_size", 34)
 	note.add_theme_color_override("font_color", KahveTheme.ENAMEL_RED)
 	head.add_child(note)
-	for group: Array in Prefs.GROUPS:
-		var title := Label.new()
-		title.text = group[0]
-		title.add_theme_font_override("font", KahveTheme.font("sign"))
-		title.add_theme_font_size_override("font_size", KahveTheme.SIZE_BODY)
-		title.add_theme_color_override("font_color", Color(KahveTheme.PAPER_INK, 0.7))
-		box.add_child(title)
-		var rule := ColorRect.new()
-		rule.color = Color(KahveTheme.PAPER_INK, 0.35)
-		rule.custom_minimum_size = Vector2(0, 2)
-		box.add_child(rule)
-		for key: String in group[1]:
-			box.add_child(_row(key))
+	var columns := HBoxContainer.new()
+	columns.add_theme_constant_override("separation", 48)
+	box.add_child(columns)
+	for column: Array in COLUMNS:
+		var side := VBoxContainer.new()
+		side.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		side.size_flags_stretch_ratio = 1.0
+		side.add_theme_constant_override("separation", 8)
+		columns.add_child(side)
+		for index: int in column:
+			var group: Array = Prefs.GROUPS[index]
+			var title := Label.new()
+			title.text = group[0]
+			title.add_theme_font_override("font", KahveTheme.font("sign"))
+			title.add_theme_font_size_override("font_size", KahveTheme.SIZE_BODY)
+			title.add_theme_color_override("font_color", Color(KahveTheme.PAPER_INK, 0.7))
+			side.add_child(title)
+			var rule := ColorRect.new()
+			rule.color = Color(KahveTheme.PAPER_INK, 0.35)
+			rule.custom_minimum_size = Vector2(0, 2)
+			side.add_child(rule)
+			for key: String in group[1]:
+				side.add_child(_row(key))
+			var gap := Control.new()
+			gap.custom_minimum_size = Vector2(0, 10)
+			side.add_child(gap)
 	var footer := HBoxContainer.new()
 	footer.add_theme_constant_override("separation", 16)
 	footer.alignment = BoxContainer.ALIGNMENT_END
@@ -70,9 +85,9 @@ func _ready() -> void:
 func _row(key: String) -> Control:
 	var info: Array = Prefs.ROWS[key]
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 18)
+	row.add_theme_constant_override("separation", 14)
 	var words := VBoxContainer.new()
-	words.add_theme_constant_override("separation", -2)
+	words.add_theme_constant_override("separation", -4)
 	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var title := Label.new()
 	title.text = info[0]
@@ -83,7 +98,7 @@ func _row(key: String) -> Control:
 	var text := Label.new()
 	text.text = info[1]
 	text.add_theme_font_override("font", KahveTheme.font("hand"))
-	text.add_theme_font_size_override("font_size", 26)
+	text.add_theme_font_size_override("font_size", 24)
 	text.add_theme_color_override("font_color", Color(KahveTheme.PAPER_INK, 0.75))
 	text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	words.add_child(text)
@@ -110,6 +125,7 @@ func _row(key: String) -> Control:
 		stepper.value_changed.connect(func(v: float) -> void: _change(key, int(v)))
 		control = stepper
 	control.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	control.custom_minimum_size.x = maxf(control.custom_minimum_size.x, 250.0) # switches and numbers line up
 	row.add_child(control)
 	_controls[key] = control
 	return row
@@ -123,9 +139,7 @@ func refresh() -> void:
 			(control as Switch).set_state(Prefs.get_value(key))
 		else:
 			(control as Stepper).set_value(float(Prefs.get_value(key)))
-		var reset: Button = _resets[key]
-		reset.modulate.a = 0.0 if Prefs.is_default(key) else 1.0
-		reset.mouse_filter = Control.MOUSE_FILTER_IGNORE if Prefs.is_default(key) else Control.MOUSE_FILTER_STOP
+		_mark(key)
 
 
 ## As the player changing a row: writes the setting, applies it and keeps it.
@@ -136,6 +150,11 @@ func set_pref(key: String, value: Variant) -> void:
 
 func _change(key: String, value: Variant) -> void:
 	Prefs.set_value(key, value)
+	_mark(key)
+
+
+# The Sıfırla tile shows only on a changed row.
+func _mark(key: String) -> void:
 	var reset: Button = _resets[key]
 	reset.modulate.a = 0.0 if Prefs.is_default(key) else 1.0
 	reset.mouse_filter = Control.MOUSE_FILTER_IGNORE if Prefs.is_default(key) else Control.MOUSE_FILTER_STOP

@@ -365,8 +365,12 @@ func _play_for_player() -> void:
 func _update_hud() -> void:
 	var over := game.phase == OkeyGame.Phase.OVER
 	for p in OkeyGame.PLAYERS:
-		_plates[p].set_info(name_of(p), not over and game.turn == p, KahveTheme.SEAT_COLOURS[p])
-	# The banner: your turn with the clock, or whose turn it is.
+		_plates[p].set_info(name_of(p), not over and game.turn == p and deal_show == null, KahveTheme.SEAT_COLOURS[p])
+	# The banner: your turn with the clock, or whose turn it is (nothing while the tiles are still being dealt).
+	if deal_show != null:
+		hud.set_turn("")
+		hud.set_prompt([])
+		return
 	if not over and game.turn == PLAYER:
 		var clock := "" if game.settings.turn_time_limit <= 0 else "  ·  %d" % ceili(maxf(_time_left, 0.0))
 		hud.set_turn("Sıra sende" + clock, KahveTheme.SEAT_COLOURS[PLAYER])

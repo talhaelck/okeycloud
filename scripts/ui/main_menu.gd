@@ -330,23 +330,23 @@ func _shift_rack(amount: float) -> void:
 	_rack.offset_bottom = -30.0 + amount
 
 
-# A page fades up from a little below its place, and sinks away.
+# A page fades up from a touch larger, and shrinks away (pages are anchored, so only modulate and scale move).
 func _show_page(page: Control, on: bool) -> void:
 	if Fade.instant:
 		page.visible = on
 		page.modulate.a = 1.0
 		return
 	page.visible = true
-	var from := page.position
+	page.pivot_offset = page.get_combined_minimum_size() * 0.5 if page.size == Vector2.ZERO else page.size * 0.5
 	var tween := page.create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	if on:
 		page.modulate.a = 0.0
-		page.position = from + Vector2(0, 40)
-		tween.tween_property(page, "modulate:a", 1.0, 0.3)
-		tween.tween_property(page, "position", from, 0.35)
+		page.scale = Vector2(1.04, 1.04)
+		tween.tween_property(page, "modulate:a", 1.0, 0.25)
+		tween.tween_property(page, "scale", Vector2.ONE, 0.3)
 	else:
-		tween.tween_property(page, "modulate:a", 0.0, 0.22)
-		tween.tween_property(page, "position", from + Vector2(0, 30), 0.25)
+		tween.tween_property(page, "modulate:a", 0.0, 0.2)
+		tween.tween_property(page, "scale", Vector2(1.03, 1.03), 0.2)
 		tween.chain().tween_callback(func() -> void:
 			page.visible = false
-			page.position = from)
+			page.scale = Vector2.ONE)

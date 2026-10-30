@@ -11,7 +11,7 @@ signal finished
 
 static var enabled := DisplayServer.get_name() != "headless"
 
-const EYE := Vector3(0.0, 2.1, 1.05) # the overview, relative to the table
+const EYE := Vector3(0.0, 1.92, 1.2) # the overview, relative to the table (under the lamp, not in it)
 const LOOK := Vector3(0.0, 0.75, -0.15)
 const TILE_GAP := 0.028 # seconds between two tiles leaving the pile
 const FLIGHT := 0.32 # seconds a tile is in the air
