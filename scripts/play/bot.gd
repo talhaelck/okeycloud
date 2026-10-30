@@ -122,6 +122,8 @@ func _mischief() -> void:
 		if _busy or game == null or game.phase == OkeyGame.Phase.OVER or game.turn == seat_index \
 				or OkeyGame.next_of(game.turn) == seat_index and game.phase == OkeyGame.Phase.PLAY:
 			continue # not while his own turn is coming up
+		if director.deal_show != null:
+			continue # not while the tiles are still being dealt
 		if _hands() == null or randf() > greed:
 			continue
 		var chance := director.stealing.opportunity(seat_index, greed)

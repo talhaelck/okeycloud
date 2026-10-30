@@ -96,6 +96,16 @@
 - `tests/fps_check.gd [-- --no-demo]` prints average and slowest-1% frame times and any hitch over 50 ms. Close the
   game first: a running copy shares the GPU and ruins the numbers. A one-off ~2 s hitch ~5 s after loading is not
   explained yet (suspect first-use shader compilation).
+- Presentation (2026-10-30): `Main` plays `Intro` once per run before the menu (`--no-intro` or the "intro" setting
+  skip it; `Intro.enabled` is false headless, tests switch it on), then `MainMenu`: sign drops on its chains, rack
+  rises, five tiles (OYNA, KURALLAR, NASIL OYNANIR, AYARLAR, ÇIKIŞ); pages fade up while the rack sinks. Menu -> table
+  and table -> menu go through `main.fade`. Each hand opens with `DealShow` (`DealShow.enabled`, "deal_show" pref;
+  GameDirector._deal awaits it, any key/click skips). HUD: the turn banner drops in when the turn passes and its
+  stripe blinks under 5 s; Tab/H pages fade up; the pause menu fades in/out and has Ayarlar. The last hand of a match
+  gives the winner a moment (camera to his face, sparks, stamp, sting) before the board. Sfx play on a "Game" bus
+  (made by Prefs, sent to "Room") so the game's sounds and the kahvehane have separate volumes.
+  Screens to check by eye: `xvfb-run ... godot --path . --fixed-fps 30 --script tests/presentation_shots.gd -- <prefix> [intro|menu|deal|pause]`
+  (on Windows without xvfb-run). Test: `godot --path . --headless --fixed-fps 30 --script tests/presentation_test.gd`.
 - HUD facts (2026-10-30): there is no always-on score sign. Tab opens the veresiye defteri (`Hud.show_ledger`, data from
   `GameDirector._ledger_data`: columns per player, a row per hand, totals, margin notes of the last hand). Name plates
   (`Nameplate`) show only while you look at that dayı (`GameDirector._show_names`, NAME_ANGLE), carry name and colour only,
@@ -138,7 +148,12 @@ scripts/play/      hand.gd: local glove, ray picking, drop targets, steal/caught
 scripts/ui/        hud.gd: crosshair, hint, flash, status, totals, feed, rack buttons, chalkboard, score sheet;
                    post_fx.gd: vignette + grain + rack blindness + colour pulse; kahve_theme.gd: the look of every
                    screen (wood, brass, cream paper); main_menu.gd, room_setup.gd ("Masa kur": table page with seat cards + rule-set cards, rules page with search/categories/steppers; every
-                   rule), pause_menu.gd (Esc)
+                   rule), pause_menu.gd (Esc), settings_menu.gd ("Ayarlar": the rows of Prefs on paper),
+                   intro.gd (the opening: in from the door to the menu's camera pose, letter tiles title, any key skips),
+                   fade.gd (the black curtain between intro / menu / table; `Fade.instant` headless)
+scripts/play/      prefs.gd: the player's own settings (user://prefs.json: volumes, fullscreen, vsync, render scale,
+                   grain, intro, deal show), applied by Prefs.apply(); deal_show.gd: the start of a hand (camera over
+                   the table, tiles fly from the pile into the racks, gösterge flips, okey stamp; holds the first turn)
 assets/            models/dayi/{dayi,hands}.glb + models/props/*.glb (generated, do not hand-edit),
                   polyhaven/ (CC0 downloads), CREDITS.md
 ```
@@ -161,7 +176,8 @@ assets/            models/dayi/{dayi,hands}.glb + models/props/*.glb (generated,
   `godot --path . --headless --fixed-fps 30 --script tests/stealing_test.gd` (every theft/catch/count case),
   `... tests/quick_moves_test.gd` (click to draw, double-click to throw, Ctrl+click groups, rack buttons, lines),
   `... tests/ui_test.gd` (menu -> Masa kur -> Başlat -> Esc -> back, through the real Boot scene),
-  `... tests/hand_end_test.gd` (the end-of-hand show), `... tests/sfx_test.gd` (sounds fire where they should).
+  `... tests/hand_end_test.gd` (the end-of-hand show), `... tests/sfx_test.gd` (sounds fire where they should),
+  `... tests/presentation_test.gd` (intro, deal show, settings file and page).
   Headless the window is tiny (64x64): test what a screen needs (`get_combined_minimum_size`), not where it ends up.
 - The whole suite in one go (several minutes): `bash tests/run_all.sh`. Green is exit=0 and FAILS: 0 / PASS on every line.
 - Screens (windowed, PNGs to read): `godot --path . --script tests/ui_shots.gd -- screenshots/ui [rack|menu|fx|end]`.
@@ -214,8 +230,11 @@ assets/            models/dayi/{dayi,hands}.glb + models/props/*.glb (generated,
   rule with its Turkish text, own rule sets saved in user://presets/), Esc pause menu; synthesised tile and UI sounds;
   tile sounds, gold sparkle on opening, floating "+101", colour pulse / shake / slow motion when caught; the end of a hand
   is a show (camera to the finisher, racks tip over face up, chalkboard counts the scores).
+- Done (2026-10-30, presentation pass): opening intro, menu arrival and page transitions, fades between menu and
+  table, deal show at the start of every hand, HUD banner/page animation, pause menu fade, winner moment, "Ayarlar"
+  (sound/picture/shows) kept in user://prefs.json.
 - Next: modes as presets (eşli 101, karanlık, hırsızlar gecesi), distractions (TV goal, table tap), stealing from laid
-  melds, character creator, graphics/sound settings page.
+  melds, character creator.
 
 ## Rules
 1. Keep network, camera/visual effects and Okey rules in separate modules (see master.md section 5).

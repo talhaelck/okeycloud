@@ -25,6 +25,7 @@ run physics_test --script res://tests/physics_test.gd
 run floating_props --script res://tests/floating_props_test.gd
 run sfx_test --fixed-fps 30 --script res://tests/sfx_test.gd
 run ui_test --fixed-fps 30 --script res://tests/ui_test.gd
+run presentation --fixed-fps 30 --script res://tests/presentation_test.gd
 run player_moves --fixed-fps 30 --script res://tests/player_moves_test.gd
 run quick_moves --fixed-fps 30 --script res://tests/quick_moves_test.gd
 run stealing --fixed-fps 30 --script res://tests/stealing_test.gd

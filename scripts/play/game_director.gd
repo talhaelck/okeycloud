@@ -41,6 +41,7 @@ var post_fx: PostFx
 var watchers: Array[Watcher] = []
 var stealing: Stealing = Stealing.new()
 var end_show: HandEndShow
+var deal_show: DealShow
 var _plates: Array[Nameplate] = []
 
 var _bots: Array[Bot] = []
@@ -99,7 +100,7 @@ func _process(delta: float) -> void:
 		return
 	_show_names()
 	if game.phase != OkeyGame.Phase.OVER and game.turn == PLAYER and game.settings.turn_time_limit > 0 \
-			and not _stand_in_playing:
+			and not _stand_in_playing and deal_show == null: # (the clock starts with the first turn, after the deal)
 		_time_left -= delta
 		if _time_left <= 0.0:
 			_play_for_player()
@@ -117,6 +118,9 @@ func _process(delta: float) -> void:
 func _unhandled_key_input(event: InputEvent) -> void:
 	var key := event as InputEventKey
 	if game == null or key == null or not key.pressed or key.echo:
+		return
+	if deal_show and deal_show.running:
+		deal_show.skip()
 		return
 	if key.keycode in [KEY_H, KEY_F1]:
 		hud.toggle_help()
@@ -142,6 +146,14 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			stealing.accuse(PLAYER, target)
 		else:
 			stealing.count_check(PLAYER, target)
+
+
+# A click also skips the deal show (the hand is kept out of it, so the click reaches nobody else).
+func _unhandled_input(event: InputEvent) -> void:
+	var button := event as InputEventMouseButton
+	if button and button.pressed and deal_show and deal_show.running:
+		deal_show.skip()
+		get_viewport().set_input_as_handled()
 
 
 ## The seat whose head is nearest the middle of the player's view (within ACCUSE_ANGLE), -1 if none or he is
@@ -277,6 +289,9 @@ func _deal() -> void:
 	if end_show:
 		end_show.close()
 		end_show = null
+	if deal_show:
+		deal_show.close()
+		deal_show = null
 	# A dayı in the middle of something (a theft that outlasted the hand) finishes it first: a tile still in his hand
 	# would otherwise live on into the new hand next to its fresh twin.
 	while _bots.any(func(b: Bot) -> bool: return b.busy()):
@@ -303,7 +318,22 @@ func _deal() -> void:
 		OkeyTiles.colour_name(game.okey.x), game.okey.y])
 	if okey == OkeyTiles.FAKE:
 		push_warning("gösterge is a sahte okey")
+	if DealShow.enabled and Prefs.get_value("deal_show"):
+		await _show_deal()
 	_begin_turn()
+
+
+# The tiles fly into the racks while the camera looks on from above; the first turn waits for it. The player's hand
+# is kept out of it (a tile grabbed in flight would be lost).
+func _show_deal() -> void:
+	var hand_mode := hand.process_mode
+	hand.process_mode = Node.PROCESS_MODE_DISABLED
+	deal_show = DealShow.new()
+	deal_show.director = self
+	add_child(deal_show)
+	await deal_show.run()
+	deal_show = null
+	hand.process_mode = hand_mode
 
 
 func _begin_turn() -> void:

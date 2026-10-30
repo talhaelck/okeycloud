@@ -7,7 +7,7 @@ class_name Sfx
 ## play at once. `played` counts every sound by kind (tests read it, since nobody can listen to a headless run).
 
 const AUDIO := "res://assets/audio/"
-const BUS := &"Room"
+const BUS := &"Game" # made by Prefs, sent on to the room's reverb; Master when it is missing
 const MAX_PLAYING := 16
 
 static var played := {}

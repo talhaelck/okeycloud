@@ -25,6 +25,11 @@ var _hint := Label.new()
 var _turn := PanelContainer.new()
 var _turn_label := Label.new()
 var _turn_stripe := ColorRect.new()
+var _turn_key := "" # the banner's words without the clock, to see when whose turn it is changes
+var _turn_tween: Tween
+var _turn_urgent := false
+var _prompt_tween: Tween
+var _page_tweens := {}
 var _prompt_box := PanelContainer.new()
 var _prompt_holder := HBoxContainer.new()
 var _prompt_signature := ""
@@ -110,6 +115,7 @@ func _build_turn() -> void:
 	_turn.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_turn.offset_top = 30
 	_turn.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_turn.pivot_offset = Vector2(0, 0)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
 	_turn.add_child(row)
@@ -275,11 +281,46 @@ func set_hint(text: String) -> void:
 		_crosshair.queue_redraw()
 
 
-## The banner at the top: whose turn it is, in his colour. "" hides it.
+## The banner at the top: whose turn it is, in his colour. "" hides it. When the turn passes the banner drops in
+## afresh (yours with a tick), and the last seconds of your clock make its stripe blink.
 func set_turn(text: String, colour := Color.WHITE) -> void:
 	_turn.visible = text != ""
 	_turn_label.text = text
 	_turn_stripe.color = colour
+	var key := text.get_slice("  ·", 0)
+	var seconds := int(text.get_slice("·  ", 1)) if text.contains("·") else 0
+	var urgent := key == "Sıra sende" and seconds > 0 and seconds <= 5
+	if key != _turn_key:
+		_turn_key = key
+		_turn_urgent = false
+		if key != "":
+			_banner_in(key == "Sıra sende")
+	if urgent != _turn_urgent:
+		_turn_urgent = urgent
+		if _turn_tween:
+			_turn_tween.kill()
+			_turn_tween = null
+		_turn_stripe.modulate = Color.WHITE
+		if urgent:
+			_turn_tween = create_tween().set_loops()
+			_turn_tween.tween_property(_turn_stripe, "modulate", Color(1, 0.25, 0.2), 0.25)
+			_turn_tween.tween_property(_turn_stripe, "modulate", Color.WHITE, 0.25)
+
+
+# The banner drops in from above and settles (with a tick when it is your turn).
+func _banner_in(mine: bool) -> void:
+	if mine:
+		Sfx.ui("tile_click", -6.0)
+	if Fade.instant:
+		return
+	if _turn_tween:
+		_turn_tween.kill()
+	_turn.modulate.a = 0.0
+	_turn.offset_top = 30 - 36
+	_turn_tween = create_tween().set_parallel().set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	_turn_tween.tween_property(_turn, "offset_top", 30.0, 0.4)
+	_turn_tween.tween_property(_turn, "modulate:a", 1.0, 0.2)
+	_turn_tween.chain().tween_callback(func() -> void: _turn_tween = null)
 
 
 ## One line saying what to press now: words and keys, as KeyCap.line takes them ([] hides it). A "|" in the list
@@ -293,6 +334,12 @@ func set_prompt(parts: Array) -> void:
 		_prompt_holder.remove_child(child)
 		child.queue_free()
 	_prompt_box.visible = not parts.is_empty()
+	if _prompt_box.visible and not Fade.instant: # a new line fades up
+		if _prompt_tween:
+			_prompt_tween.kill()
+		_prompt_box.modulate.a = 0.0
+		_prompt_tween = create_tween()
+		_prompt_tween.tween_property(_prompt_box, "modulate:a", 1.0, 0.3)
 	var group: Array = []
 	for part: Variant in parts:
 		if part is String and part == "|":
@@ -377,7 +424,33 @@ func feed_count() -> int:
 
 ## The how-to-play card.
 func toggle_help() -> void:
-	_help.visible = not _help.visible
+	_show_page(_help, not _help.visible)
+
+
+# A paper page (the ledger, the help) is laid on the table: it fades up from a little larger, and lifts away.
+func _show_page(page: Control, on: bool) -> void:
+	if Fade.instant:
+		page.visible = on
+		page.modulate.a = 1.0
+		return
+	if _page_tweens.has(page):
+		(_page_tweens[page] as Tween).kill()
+	page.visible = true
+	page.pivot_offset = page.size * 0.5
+	var tween := page.create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if on:
+		page.modulate.a = 0.0
+		page.scale = Vector2(1.04, 1.04)
+		tween.tween_property(page, "modulate:a", 1.0, 0.18)
+		tween.tween_property(page, "scale", Vector2.ONE, 0.25)
+		Sfx.ui("tile_slide", -8.0)
+	else:
+		tween.tween_property(page, "modulate:a", 0.0, 0.15)
+		tween.tween_property(page, "scale", Vector2(1.03, 1.03), 0.15)
+		tween.chain().tween_callback(func() -> void:
+			page.visible = false
+			page.scale = Vector2.ONE)
+	_page_tweens[page] = tween
 
 
 func help_visible() -> bool:
@@ -389,7 +462,8 @@ func help_visible() -> bool:
 ## {} hides it.
 func show_ledger(data: Dictionary) -> void:
 	if data.is_empty():
-		_sheet.visible = false
+		if _sheet.visible:
+			_show_page(_sheet, false)
 		return
 	for child in _ledger.get_children():
 		_ledger.remove_child(child)
@@ -485,8 +559,11 @@ func show_ledger(data: Dictionary) -> void:
 	var footer: String = data.footer
 	if footer != "":
 		_ledger.add_child(_cell(footer, "script", 36, HORIZONTAL_ALIGNMENT_RIGHT, 0, KahveTheme.ENAMEL_RED))
+	var was_up := _sheet.visible
 	_sheet.visible = true
 	_sheet.reset_size()
+	if not was_up:
+		_show_page(_sheet, true)
 
 
 func _cell(text: String, kind: String, size: int, align := HORIZONTAL_ALIGNMENT_LEFT, width := 0, colour := KahveTheme.PAPER_INK) -> Label:

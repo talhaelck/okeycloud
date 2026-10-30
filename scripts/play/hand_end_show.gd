@@ -8,6 +8,8 @@ extends Node
 ##  4. the chalkboard on the right writes itself: each player's hand score counting up with the reasons under it
 ##     (tiles left, penalties, doubled), then the match totals, with the lowest in brass;
 ##  5. "Enter: sonraki el" (or, after the last hand, the winner and Yeni maç / Ana menü).
+## After the last hand of the match the winner gets his moment first: the camera comes round to his face, gold
+## sparks rise off his rack, a stamp names him (KAZANDIN! for you) and the winning sting plays.
 ## Enter while it runs skips to the end. close() puts everything back for the next deal.
 
 signal finished
@@ -50,6 +52,8 @@ func run() -> void:
 		seat.rack.tip_over(0.0 if _skipped else 0.75)
 		await _wait(0.2)
 	await _wait(0.6)
+	if game.match_over():
+		await _winner_moment()
 	await _fly(camera.cine_transform, _overview_pose(), 1.1)
 	await _write_board()
 	running = false
@@ -69,6 +73,24 @@ func close() -> void:
 	if camera.mouse_control and not camera.focused:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	queue_free()
+
+
+# The winner of the match, before the board: his face, the sparks, the stamp.
+func _winner_moment() -> void:
+	var d := director
+	var winner := 0
+	for p in OkeyGame.PLAYERS:
+		if d.game.totals[p] < d.game.totals[winner]:
+			winner = p
+	var camera := d.hand.camera
+	await _fly(camera.cine_transform, _face_pose(winner) if winner != d.PLAYER else _overview_pose(), 1.0)
+	if _skipped:
+		return
+	Sfx.ui("sting_win", -2.0)
+	var rack := d.seats[winner].rack
+	Effects.sparkle(d, rack.global_position + Vector3(0, 0.08, 0), Vector3(0.4, 0.01, 0.12), 60, rack.global_rotation.y)
+	d.hud.stamp("KAZANDIN!" if winner == d.PLAYER else "%s KAZANDI" % d.name_of(winner).to_upper(), KahveTheme.BRASS_BRIGHT)
+	await _wait(2.0)
 
 
 # --- Camera poses ---------------------------------------------------------------------------------------------------

@@ -2,9 +2,10 @@ class_name MainMenu
 extends CanvasLayer
 ## The main menu, over the living kahvehane (design size 1920x1080). The camera drifts slowly round the table; over it
 ## hangs an enamel sign with the name of the game, and below stand the choices as tiles in an okey rack:
-## OYNA (the table setup), KURALLAR (the same, at the rules), NASIL OYNANIR, ÇIKIŞ.
-## When the menu opens the sign swings a little and the tiles slide up into the rack one by one: the one moment of
-## motion that nobody asked for. Arrow keys move between tiles, Enter takes one, Esc goes back.
+## OYNA (the table setup), KURALLAR (the same, at the rules), NASIL OYNANIR, AYARLAR, ÇIKIŞ.
+## When the menu opens the sign drops down on its chains and swings, and the tiles slide up into the rack one by one.
+## A page (Masa kur, Nasıl oynanır, Ayarlar) fades up over the room while the rack sinks out of sight, and the other
+## way back. Arrow keys move between tiles, Enter takes one, Esc goes back.
 
 signal started(rules: GameSettings, bots: Array)
 signal quit_pressed
@@ -36,7 +37,9 @@ var _rack := Control.new()
 var _tiles: Array[MenuTile] = []
 var _setup: RoomSetup
 var _howto := PanelContainer.new()
+var _settings: SettingsMenu
 var _time := 0.0
+var _rack_tween: Tween
 
 
 func _ready() -> void:
@@ -53,6 +56,10 @@ func _ready() -> void:
 	_setup.started.connect(func(rules: GameSettings, bots: Array) -> void: started.emit(rules, bots))
 	_setup.back.connect(_close_setup)
 	_root.add_child(_setup)
+	_settings = SettingsMenu.new()
+	_settings.visible = false
+	_settings.closed.connect(_close_settings)
+	_root.add_child(_settings)
 	var version := Label.new()
 	version.text = "Sürüm 0.1"
 	version.theme_type_variation = "SmallLabel"
@@ -69,11 +76,16 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	if camera == null:
 		return
-	# A slow sweep behind the player's chair, looking across the table.
 	_time += delta
-	var angle := sin(_time * 0.12) * 0.55
-	var position := Vector3(sin(angle) * 2.5, 1.62 + sin(_time * 0.2) * 0.08, cos(angle) * 2.5)
-	camera.global_transform = Transform3D(Basis.looking_at(Vector3(0.25, 0.9, -0.1) - position, Vector3.UP), position)
+	camera.global_transform = orbit_pose(_time)
+
+
+## Where the menu's camera is `time` seconds in: a slow sweep over the player's right shoulder, looking across the
+## table at the others (the intro ends at `orbit_pose(0.0)`).
+static func orbit_pose(time: float) -> Transform3D:
+	var angle := 0.5 + sin(time * 0.12) * 0.3
+	var position := Vector3(sin(angle) * 2.5, 1.7 + sin(time * 0.2) * 0.06, cos(angle) * 2.5)
+	return Transform3D(Basis.looking_at(Vector3(0.1, 0.9, -0.1) - position, Vector3.UP), position)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
@@ -81,6 +93,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 	if key and key.pressed and not key.echo and key.keycode == KEY_ESCAPE:
 		if _howto.visible:
 			_close_howto()
+		elif _settings.visible:
+			_close_settings()
 		elif _setup.visible:
 			_setup.go_back()
 		get_viewport().set_input_as_handled()
@@ -136,7 +150,7 @@ func _build_sign() -> void:
 
 
 func _build_rack() -> void:
-	var width := 1380.0
+	var width := 1660.0
 	_rack.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_rack.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_rack.grow_vertical = Control.GROW_DIRECTION_BEGIN
@@ -154,8 +168,9 @@ func _build_rack() -> void:
 	_rack.add_child(back)
 	var entries := [["OYNA", KahveTheme.SUIT_RED, _open_play], ["KURALLAR", KahveTheme.SUIT_BLACK, _open_rules],
 		["NASIL
-OYNANIR", KahveTheme.SUIT_BLUE, _open_howto], ["ÇIKIŞ", KahveTheme.SUIT_YELLOW, func() -> void: quit_pressed.emit()]]
-	var gap := 26.0
+OYNANIR", KahveTheme.SUIT_BLUE, _open_howto], ["AYARLAR", KahveTheme.SUIT_YELLOW, _open_settings],
+		["ÇIKIŞ", KahveTheme.SUIT_BLACK, func() -> void: quit_pressed.emit()]]
+	var gap := 22.0
 	var start := (width - (entries.size() * MenuTile.SIZE.x + (entries.size() - 1) * gap)) * 0.5
 	for i in entries.size():
 		var tile := MenuTile.new(entries[i][0], entries[i][1])
@@ -205,17 +220,28 @@ func _build_howto() -> void:
 	_root.add_child(_howto)
 
 
-# The opening moment: the sign swings, the tiles slide up into the rack one after another.
+# The opening moment: the sign comes down on its chains and settles swinging, the rack rises from below and the
+# tiles slide up into it one after another.
 func _arrive() -> void:
+	_hanger.position.y = -470.0
+	var drop := _hanger.create_tween()
+	drop.tween_property(_hanger, "position:y", 0.0, 0.9).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	drop.tween_callback(func() -> void: Sfx.ui("tile_felt", -6.0))
+	drop.tween_property(_hanger, "rotation", 0.012, 2.6).from(-0.03).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	var swing := _hanger.create_tween().set_loops()
-	swing.tween_property(_hanger, "rotation", 0.012, 2.6).from(-0.012).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	swing.tween_interval(3.5)
 	swing.tween_property(_hanger, "rotation", -0.012, 2.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	swing.tween_property(_hanger, "rotation", 0.012, 2.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+	_rack.position.y = 260.0
+	var rise := _rack.create_tween()
+	rise.tween_interval(0.2)
+	rise.tween_property(_rack, "position:y", 0.0, 0.7).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	for i in _tiles.size():
 		var tile := _tiles[i]
 		var rest := tile.position.y
 		tile.position.y = rest + 420.0
 		var slide := tile.create_tween()
-		slide.tween_interval(0.25 + i * 0.12)
+		slide.tween_interval(0.55 + i * 0.11)
 		slide.tween_property(tile, "position:y", rest, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		slide.tween_callback(func() -> void: Sfx.ui("tile_rack", -4.0))
 	_tiles[0].grab_focus.call_deferred()
@@ -233,35 +259,87 @@ func setup_screen() -> RoomSetup:
 	return _setup
 
 
+func settings_screen() -> SettingsMenu:
+	return _settings
+
+
 func _open_play() -> void:
 	_show_rack(false)
-	_setup.visible = true
 	_setup.show_page(0)
+	_show_page(_setup, true)
 
 
 func _open_rules() -> void:
 	_show_rack(false)
-	_setup.visible = true
 	_setup.show_page(1)
+	_show_page(_setup, true)
 
 
 func _close_setup() -> void:
-	_setup.visible = false
+	_show_page(_setup, false)
 	_show_rack(true)
 
 
 func _open_howto() -> void:
 	_show_rack(false)
-	_howto.visible = true
+	_show_page(_howto, true)
 
 
 func _close_howto() -> void:
-	_howto.visible = false
+	_show_page(_howto, false)
 	_show_rack(true)
 
 
+func _open_settings() -> void:
+	_show_rack(false)
+	_settings.refresh()
+	_show_page(_settings, true)
+
+
+func _close_settings() -> void:
+	_show_page(_settings, false)
+	_show_rack(true)
+
+
+# The rack sinks below the picture and the sign lifts away (and back) while a page is up.
 func _show_rack(on: bool) -> void:
-	_rack.visible = on
-	_hanger.visible = on
+	if _rack_tween:
+		_rack_tween.kill()
+	if Fade.instant:
+		_rack.visible = on
+		_hanger.visible = on
+		_rack.position.y = 0.0
+		_hanger.position.y = 0.0
+	else:
+		_rack.visible = true
+		_hanger.visible = true
+		_rack_tween = create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT if on else Tween.EASE_IN)
+		_rack_tween.tween_property(_rack, "position:y", 0.0 if on else 520.0, 0.35)
+		_rack_tween.tween_property(_hanger, "position:y", 0.0 if on else -470.0, 0.35)
+		_rack_tween.chain().tween_callback(func() -> void:
+			_rack.visible = on
+			_hanger.visible = on)
 	if on:
 		_tiles[0].grab_focus.call_deferred()
+
+
+# A page fades up from a little below its place, and sinks away.
+func _show_page(page: Control, on: bool) -> void:
+	if Fade.instant:
+		page.visible = on
+		page.modulate.a = 1.0
+		return
+	page.visible = true
+	var from := page.position
+	var tween := page.create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	if on:
+		page.modulate.a = 0.0
+		page.position = from + Vector2(0, 40)
+		tween.tween_property(page, "modulate:a", 1.0, 0.3)
+		tween.tween_property(page, "position", from, 0.35)
+	else:
+		tween.tween_property(page, "modulate:a", 0.0, 0.22)
+		tween.tween_property(page, "position", from + Vector2(0, 30), 0.25)
+		tween.chain().tween_callback(func() -> void:
+			page.visible = false
+			page.position = from)

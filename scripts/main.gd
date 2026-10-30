@@ -17,6 +17,11 @@ var show_menu := false
 var _viewing := 0 # whose eyes the camera looks out of (keys 1-4)
 var _menu: MainMenu
 var _pause: PauseMenu
+## The black curtain between the intro, the menu and the table (over everything).
+var fade := Fade.new()
+var intro: Intro
+static var _intro_played := false # once per run: not again after "Ana menüye dön"
+static var _lift_curtain := false # the scene starts under the curtain (after "Ana menüye dön") and lifts it
 
 @onready var camera: FocusCamera = $FocusCamera
 @onready var table: Table = $Table
@@ -56,9 +61,17 @@ func _ready() -> void:
 	director.menu_requested.connect(return_to_menu)
 	director.watchers = watchers
 	add_child(director)
+	add_child(fade)
+	if _lift_curtain:
+		_lift_curtain = false
+		fade.cover()
+	Prefs.apply()
 
 	if show_menu:
-		_enter_menu()
+		if _wants_intro():
+			_play_intro()
+		else:
+			_enter_menu()
 		return
 	start_game(GameSettings.from_command_line())
 	var args := _user_args()
@@ -66,11 +79,14 @@ func _ready() -> void:
 		_capture(args)
 
 
-## Starts a game with these house rules and a level id (GameDirector.LEVELS) for each of seats 1-3.
+## Starts a game with these house rules and a level id (GameDirector.LEVELS) for each of seats 1-3. From the menu the
+## picture goes dark for a moment and comes back on the table.
 func start_game(rules: GameSettings, bots: Array = []) -> void:
 	if _menu:
+		await fade.darken(0.45)
 		_menu.queue_free()
 		_menu = null
+		fade.lighten(0.9)
 	hud.visible = true
 	post_fx.blindness = rules.rack_blindness
 	camera.process_mode = Node.PROCESS_MODE_INHERIT
@@ -87,6 +103,8 @@ func start_game(rules: GameSettings, bots: Array = []) -> void:
 func return_to_menu() -> void:
 	get_tree().paused = false
 	Engine.time_scale = 1.0
+	await fade.darken(0.5)
+	_lift_curtain = true
 	if get_tree().current_scene != null:
 		get_tree().reload_current_scene()
 	else:
@@ -102,10 +120,44 @@ func _enter_menu() -> void:
 	_menu = MainMenu.new()
 	_menu.camera = camera
 	_menu.started.connect(start_game)
-	_menu.quit_pressed.connect(get_tree().quit)
+	_menu.quit_pressed.connect(_quit)
 	add_child(_menu)
 	if camera.mouse_control:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	if fade.is_dark():
+		fade.lighten(1.2)
+
+
+## The opening: the walk in from the door (Intro), then the menu. `--no-intro` and the "intro" setting skip it; it
+## plays once per run.
+func _wants_intro() -> bool:
+	if _intro_played or _user_args().has("no-intro") or not Prefs.get_value("intro"):
+		return false
+	return true
+
+
+func _play_intro() -> void:
+	_intro_played = true
+	hud.visible = false
+	hand.process_mode = Node.PROCESS_MODE_DISABLED
+	camera.process_mode = Node.PROCESS_MODE_DISABLED
+	for seat in seats:
+		seat.set_viewed(false)
+	if camera.mouse_control:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	intro = Intro.new()
+	intro.camera = camera
+	intro.fade = fade
+	intro.door_hinge = $Room.door_hinge
+	intro.finished.connect(func() -> void:
+		intro = null
+		_enter_menu())
+	add_child(intro)
+
+
+func _quit() -> void:
+	await fade.darken(0.4)
+	get_tree().quit()
 
 
 func _open_pause() -> void:
@@ -113,7 +165,7 @@ func _open_pause() -> void:
 	_pause.rules = director.game.settings
 	_pause.closed.connect(_on_pause_closed)
 	_pause.menu_requested.connect(return_to_menu)
-	_pause.quit_requested.connect(get_tree().quit)
+	_pause.quit_requested.connect(_quit)
 	add_child(_pause)
 
 

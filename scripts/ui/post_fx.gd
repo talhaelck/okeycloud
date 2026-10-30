@@ -30,6 +30,9 @@ void fragment() {
 }
 """
 
+## The film grain can be switched off (Prefs "grain").
+static var grain_enabled := true
+
 ## How blind rack mode makes you (0-1); a room setting.
 var blindness := 0.85
 
@@ -47,6 +50,10 @@ func _ready() -> void:
 	_material.shader = shader
 	rect.material = _material
 	add_child(rect)
+
+
+func _process(_delta: float) -> void:
+	_material.set_shader_parameter("grain", 0.05 if grain_enabled else 0.0)
 
 
 ## A colour floods the edges of the screen and drains away: red when you are caught, green when you catch.

@@ -72,6 +72,10 @@ func _menus() -> void:
 	main._menu._setup.visible = false
 	main._menu._open_howto()
 	await _shot("howto", 10)
+	main._menu._close_howto()
+	main._menu._open_settings()
+	await _shot("settings", 14)
+	main._menu._close_settings()
 	var rules := setup.rules
 	main.start_game(rules, ["zor", "kolay", "normal"])
 	await _shot("game_start", 50)
