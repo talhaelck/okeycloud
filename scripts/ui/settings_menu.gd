@@ -18,7 +18,10 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_CENTER)
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	grow_vertical = Control.GROW_DIRECTION_BOTH
-	custom_minimum_size = Vector2(1560, 0)
+	offset_left = -780 # (a centred control that only has a minimum size ends up with its corner in the middle)
+	offset_right = 780
+	offset_top = -400
+	offset_bottom = 400
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 14)
 	add_child(box)

@@ -337,7 +337,8 @@ func _show_page(page: Control, on: bool) -> void:
 		page.modulate.a = 1.0
 		return
 	page.visible = true
-	page.pivot_offset = page.get_combined_minimum_size() * 0.5 if page.size == Vector2.ZERO else page.size * 0.5
+	page.reset_size()
+	page.pivot_offset = page.size * 0.5
 	var tween := page.create_tween().set_parallel().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	if on:
 		page.modulate.a = 0.0
