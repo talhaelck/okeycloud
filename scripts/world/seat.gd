@@ -17,10 +17,24 @@ const DAYIS := ["esofmanli", "yasli", "gozluklu", "tespihli"]
 @export var seat_index := 0
 @export var is_local := false
 
+## Where a player's eyes go when he rises and bends over the table: above the near edge of the felt, looking down
+## at the middle. The bottom of the picture cuts the felt at about z = LEAN_BLIND: his own rack and the strip in
+## front of it (where a neighbour's hand comes for it) are out of sight.
+const LEAN_EYE := Vector3(0, 1.5, 0.45)
+const LEAN_LOOK := Vector3(0, Table.TOP, -0.25)
+const LEAN_BLIND := 0.38
+
 var rack: Rack
 var head_anchor: Marker3D
 var rack_focus_anchor: Marker3D
+var lean_anchor: Marker3D
+## How this player is looking right now, for everyone else's eyes (Visibility): FocusCamera.Mode (observing,
+## reading his rack, bent over the table), and while observing, the direction (world space). Bots set these from
+## their Watcher, the local player from his camera.
+var look_mode := 0
+var look_dir := Vector3.FORWARD
 var buddy: Buddy
+var _first_person: FirstPersonArms
 ## This player's tea glass (a physics body that can be knocked over).
 var tea: TeaGlass
 ## How this seat's dayı looks (the local player only shows his hands).
@@ -59,6 +73,9 @@ func _ready() -> void:
 	head_anchor = _marker(EYE, EYE + Vector3.FORWARD)
 	var rack_centre := rack.position + Vector3(0, 0.08, -0.015)
 	rack_focus_anchor = _marker(rack_centre + Vector3(0, 0.27, 0.34), rack_centre)
+	lean_anchor = _marker(LEAN_EYE, LEAN_LOOK)
+	if is_local:
+		_build_body()
 
 
 func _build_chair() -> void:
@@ -95,6 +112,79 @@ func _build_hands() -> void:
 	for mi: MeshInstance3D in find_children("sleeve*", "MeshInstance3D", true, false):
 		mi.material_override = Mat.textured("rough_linen", 0.05, Appearance.SHIRT, false, false)
 	Mat.prop(self, "tespih", Vector3(-0.6, Table.TOP, 0.56), 0.4)
+
+
+## Where his eyes are (world space): above the table edge when bent over it.
+func eye_point() -> Vector3:
+	return lean_anchor.global_position if look_mode == FocusCamera.Mode.LEAN else head_anchor.global_position
+
+
+## Which dayı the local player is (`--player=<kind>` on the command line overrides it, for testing).
+static func player_kind() -> String:
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--player="):
+			return arg.trim_prefix("--player=")
+	return DAYIS[0]
+
+
+const NAMES := {"esofmanli": "Kazım Abi", "yasli": "Hasan Amca", "gozluklu": "Hoca Dayı", "tespihli": "Mahmut Usta"}
+
+
+func display_name() -> String:
+	var kind: String = player_kind() if is_local else DAYIS[seat_index % DAYIS.size()]
+	return NAMES.get(kind, kind)
+
+
+## Whether this seat's view is the one on screen: that dayı's own head (or whole body) is hidden from it, and the
+## local player's MPFB hands only show from his own eyes. Called by Main when switching seats.
+func set_viewed(on: bool) -> void:
+	if _first_person:
+		_first_person.hide_head = on
+	elif buddy:
+		buddy.visible = not on
+	if is_local and _first_person == null:
+		for pivot: Node3D in [glove, left_hand]:
+			for mesh: MeshInstance3D in pivot.find_children("*", "MeshInstance3D", true, false):
+				mesh.visible = on
+
+
+# The player's own dayı. With a full Mixamo rig (fingers) he is seen from his eyes and his arms follow the hand
+# pivots in place of the loose MPFB arms. With a fingerless rig he sits there like the others, for everyone else to
+# see (hidden from his own view; the MPFB hands stay); with no rig the seat stays empty.
+func _build_body() -> void:
+	var kind := player_kind()
+	var path := "res://assets/models/dayi_rig/dayi_%s.glb" % kind
+	if not ResourceLoader.exists(path):
+		return
+	var rig: Node = load(path).instantiate()
+	var skeleton: Skeleton3D = rig.find_children("*", "Skeleton3D", true, false)[0]
+	var has_thumbs := skeleton.find_bone("mixamorig_RightHandThumb1") >= 0
+	rig.free()
+	if not has_thumbs:
+		buddy = Buddy.new()
+		buddy.position = Vector3(0, SEAT_TOP, CHAIR_DISTANCE)
+		add_child(buddy)
+		buddy.setup_meshy(kind)
+		set_viewed(true)
+		return
+	for pivot: Node3D in [glove, left_hand]:
+		for mesh: MeshInstance3D in pivot.find_children("*", "MeshInstance3D", true, false):
+			mesh.visible = false
+	var holder := Node3D.new()
+	holder.position = Vector3(0, SEAT_TOP, CHAIR_DISTANCE)
+	add_child(holder)
+	var body := RiggedDayi.new()
+	body.first_person = FirstPersonArms.new()
+	holder.add_child(body)
+	body.build(kind)
+	body.first_person.setup(body, glove, grip, left_hand, left_grip)
+	_first_person = body.first_person
+	# The camera looks out of his eyes; to read his rack it moves part of the way down toward it, staying above his
+	# shoulders (the old spot, made for floating hands, was inside his arms).
+	head_anchor.position = holder.position + body.eye
+	var rack_centre := rack.position + Vector3(0, 0.08, -0.015)
+	var close := head_anchor.position.lerp(rack_centre, 0.4)
+	rack_focus_anchor.transform = Transform3D(Basis.looking_at(rack_centre - close), close)
 
 
 ## MPFB's game-engine skin with a little light passing through, so the hands do not look like plastic.

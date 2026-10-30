@@ -3,9 +3,12 @@
 **Visual language:** dark varnished wood, cream paper cards, kahvehane signboard lettering, brass accents.
 Menus float in front of the live kahvehane scene, so the room is always visible behind them.
 
+> Built (2026-10-30): main menu, "Masa kur" (table page: you + bot levels + rule-set cards; rules page: search, categories, switches and steppers), the Esc menu, the rack buttons and the
+> end-of-hand chalkboard. Not built yet: the graphics/sound page, the character creator. Code in `scripts/ui/`.
+
 ## Main menu
 - The camera slowly drifts around the room; dayıs play at the background tables.
-- Entries: **Oyna**, **Karakter**, **Ayarlar**, **Çıkış**, drawn as a hanging tabela (sign).
+- Entries: **Oyna**, **Nasıl oynanır**, **Çıkış** (Karakter and Ayarlar come with their screens), on a wooden board.
 
 ## Lobby
 - Four seats around a top-down table sketch. Each seat is "Sen", "Bot (Temkinli / Hırsız)" or, later, "Arkadaş".

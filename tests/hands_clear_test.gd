@@ -12,6 +12,7 @@ var _violations := 0
 var _worst := {}
 var _closest := {}
 var _eye := Vector3.ZERO
+var _seats: Array[Seat] = []
 
 
 func _init() -> void:
@@ -28,6 +29,7 @@ func _init() -> void:
 		seats.append(seat)
 	await process_frame
 	_eye = seats[0].to_global(Seat.EYE)
+	_seats = seats
 	var tiles: Array = []
 	for i in 14:
 		tiles.append(Vector2i(i % 4, i % 13 + 1))
@@ -65,7 +67,7 @@ func _check(seat: int, skeleton: Skeleton3D) -> void:
 			depth = Table.TOP - point.y
 			what = "under felt"
 		for rack in _racks:
-			var inside := rack.penetration(point)
+			var inside := rack.penetration(point, 0.0, rack.get_parent() == _seats[seat])
 			if inside > depth:
 				depth = inside
 				what = "in a rack"

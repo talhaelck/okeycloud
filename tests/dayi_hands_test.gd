@@ -8,6 +8,8 @@ const MAX_MISS := 0.02 # pinch point to the tile's top edge when the fingers clo
 const MAX_DRIFT := 0.005 # a held tile may not move relative to the hand (half a centimetre of rounding)
 ## Touching tile faces is fine while handling tiles; past this a joint is through the board itself.
 const THROUGH_BOARD := 0.06
+## A held tile must be between his fingers: its surface this close to the pinch point (thumb and index tips).
+const MAX_GAP := 0.02
 
 var _failures: Array[String] = []
 var _hands: DayiHands
@@ -17,6 +19,9 @@ var _skeleton: Skeleton3D
 var _through := 0.0
 var _through_where := ""
 var _doing := ""
+var _gap := 0.0
+var _gap_where := ""
+var _own_rack: Rack
 
 
 func _init() -> void:
@@ -41,6 +46,7 @@ func _init() -> void:
 		_racks.append(seat.rack)
 	var dayi: RiggedDayi = seats[2].buddy.find_children("*", "RiggedDayi", true, false)[0]
 	var rack := seats[2].rack
+	_own_rack = rack
 	_hands = dayi.hands
 	var skeleton: Skeleton3D = dayi.find_children("*", "Skeleton3D", true, false)[0]
 	_skeleton = skeleton
@@ -74,6 +80,7 @@ func _init() -> void:
 	_expect(rack.tile_at(back) == dropped, "pick up: tile is back in slot %d" % back)
 	_expect_pinch("pick up")
 
+	_expect(_gap < MAX_GAP, "held tiles stayed between the fingers (farthest %.1f cm from the pinch: %s)" % [_gap * 100.0, _gap_where])
 	_expect(_through < THROUGH_BOARD, "no finger went through a rack board (deepest %.1f cm into a rack: %s)" % [_through * 100.0, _through_where])
 	print("DAYI_HANDS %s" % ("PASS" if _failures.is_empty() else "FAIL"))
 	for failure in _failures:
@@ -110,11 +117,21 @@ func _watch_held() -> void:
 		if _skeleton.get_bone_name(bone).contains("Hand"):
 			var point := _skeleton.to_global(_skeleton.get_bone_global_pose(bone).origin)
 			for rack in _racks:
-				var depth := rack.penetration(point)
+				var depth := rack.penetration(point, 0.0, rack == _own_rack)
 				if depth > _through:
 					_through = depth
 					_through_where = "%s during %s" % [_skeleton.get_bone_name(bone).trim_prefix(RiggedDayi.BONE), _doing]
 	for hand in _hands.hands:
+		if hand.tile and hand.flat <= 0.0:
+			# Measured on the real (modified) pose: pinch point to the nearest point of the tile.
+			var pinch := _skeleton.to_global(_hands._pinch_point(_skeleton, hand))
+			var local := hand.tile.global_transform.affine_inverse() * pinch
+			var half := TileFactory.SIZE * 0.5
+			var nearest := local.clamp(-half, half)
+			var gap := (hand.tile.global_transform * nearest).distance_to(pinch)
+			if gap > _gap:
+				_gap = gap
+				_gap_where = _doing
 		if hand.tile == null or hand.flat > 0.0: # laying it flat turns it in the fingers on purpose
 			_held.erase(hand)
 			continue

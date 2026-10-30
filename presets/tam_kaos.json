@@ -1,0 +1,7 @@
+{
+	"title": "Tam kaos",
+	"rules": {
+		"blackout_mode": true,
+		"catch_window": 2.5
+	}
+}

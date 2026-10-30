@@ -3,7 +3,7 @@ extends RigidBody3D
 ## One okey tile: a Jolt physics body with its mesh in `face`. Frozen (kinematic) while it sits on a rack,
 ## in a hand or in the draw pile, so it only moves where code puts it; loose on the felt it is free to fall,
 ## bounce, slide and be pushed by hands. value = Vector2i(color, number); holder is the Rack or Table it sits on
-## (null while carried).
+## (null while carried). `id` ties it to the rules (OkeyTiles).
 
 const SLIDE_TIME := 0.18
 const MASS := 0.012 # about 12 g of bakelite
@@ -12,7 +12,10 @@ static var _shape: BoxShape3D
 static var _surface: PhysicsMaterial
 
 var value: Vector2i
+## Which of the 106 tiles this is (OkeyTiles), -1 for tiles made from a bare value.
+var id := -1
 var holder: Node
+var selected := false
 var face := MeshInstance3D.new()
 
 var _tween: Tween
@@ -72,3 +75,9 @@ func set_loose(velocity := Vector3.ZERO) -> void:
 ## Hover glow on the tile (drawn by tile.gdshader).
 func set_highlight(on: bool) -> void:
 	face.set_instance_shader_parameter("highlight", 1.0 if on else 0.0)
+
+
+## Blue rim for a tile picked to be moved with the others (Ctrl+click).
+func set_selected(on: bool) -> void:
+	selected = on
+	face.set_instance_shader_parameter("selected", 1.0 if on else 0.0)

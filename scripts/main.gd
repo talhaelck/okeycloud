@@ -1,25 +1,33 @@
 extends Node3D
-## Prototype entry point: deals a shuffled okey set, wires the local camera, hand, opponents and HUD.
-## Debug: `godot --path . -- --screenshot=<file.png> [--focus] [--yaw=<rad>] [--pitch=<rad>] [--hold] [--spill] [--caught] [--frames=<n>]`
+## The table and everything around it: wires the local camera, hand, opponents and HUD. With `show_menu` set (the
+## game as started by scenes/boot.tscn) it first shows the main menu over the room; Başlat in "Oda kur" calls
+## start_game() with the chosen rules and bot levels. Without it (tests, screenshots, `--play`) the game starts at
+## once with the house rules from the command line (`--preset=<name>`, `--set=<key>=<value>`, see GameSettings).
+## Debug: `godot --path . -- --screenshot=<file.png> [--focus] [--yaw=<rad>] [--pitch=<rad>] [--hold] [--spill] [--caught] [--frames=<n>] [--view=<seat 0-3>] [--top] [--lean]`
 ## renders one frame and quits (--hold puts a tile from your rack in the hand; --frames sets how many frames
-## run before the capture).
-
-const COLOR_COUNT := 4
+## run before the capture; --top looks straight down on the table; --lean bends over the table).
 
 var hand := Hand.new()
 var hud := Hud.new()
 var post_fx := PostFx.new()
+var director: GameDirector = GameDirector.new()
 var watchers: Array[Watcher] = []
-var stolen := 0
-var caught := 0
+## Show the main menu instead of starting a game right away (set by Boot before the scene is added).
+var show_menu := false
+var _viewing := 0 # whose eyes the camera looks out of (keys 1-4)
+var _menu: MainMenu
+var _pause: PauseMenu
 
 @onready var camera: FocusCamera = $FocusCamera
 @onready var table: Table = $Table
 @onready var seats: Array[Seat] = [$Seats/Seat0, $Seats/Seat1, $Seats/Seat2, $Seats/Seat3]
 
 
+func _enter_tree() -> void:
+	RiggedDayi.demo = false # the rules move their tiles now (set before the seats build their dayıs)
+
+
 func _ready() -> void:
-	_deal()
 	camera.attach_to_seat(seats[0])
 	for seat in seats.slice(1):
 		var watcher := Watcher.new()
@@ -35,57 +43,150 @@ func _ready() -> void:
 	hand.seat = seats[0]
 	hand.seats = seats
 	hand.table = table
-	hand.watchers = watchers
 	add_child(hand)
-	hand.stole.connect(_on_stole)
-	hand.caught.connect(_on_caught)
 	add_child(post_fx)
 	add_child(hud)
+	for i in seats.size():
+		seats[i].set_viewed(i == 0)
+	director.seats = seats
+	director.table = table
+	director.hand = hand
+	director.hud = hud
+	director.post_fx = post_fx
+	director.menu_requested.connect(return_to_menu)
+	director.watchers = watchers
+	add_child(director)
 
+	if show_menu:
+		_enter_menu()
+		return
+	start_game(GameSettings.from_command_line())
 	var args := _user_args()
 	if args.has("screenshot"):
 		_capture(args)
+
+
+## Starts a game with these house rules and a level id (GameDirector.LEVELS) for each of seats 1-3.
+func start_game(rules: GameSettings, bots: Array = []) -> void:
+	if _menu:
+		_menu.queue_free()
+		_menu = null
+	hud.visible = true
+	post_fx.blindness = rules.rack_blindness
+	camera.process_mode = Node.PROCESS_MODE_INHERIT
+	hand.process_mode = Node.PROCESS_MODE_INHERIT if _viewing == 0 else Node.PROCESS_MODE_DISABLED
+	for i in seats.size():
+		seats[i].set_viewed(i == _viewing)
+	camera.attach_to_seat(seats[_viewing])
+	camera.look(0.0, -0.5)
+	camera.set_focused(false, true)
+	director.start(rules, bots)
+
+
+## Back to the main menu: the whole scene starts over.
+func return_to_menu() -> void:
+	get_tree().paused = false
+	Engine.time_scale = 1.0
+	if get_tree().current_scene != null:
+		get_tree().reload_current_scene()
 	else:
-		camera.set_focused(false, true)
+		get_tree().change_scene_to_file("res://scenes/boot.tscn") # (a game started without Boot, as tests do)
+
+
+func _enter_menu() -> void:
+	hud.visible = false
+	hand.process_mode = Node.PROCESS_MODE_DISABLED
+	camera.process_mode = Node.PROCESS_MODE_DISABLED
+	for seat in seats:
+		seat.set_viewed(false) # everyone shows his face in the menu
+	_menu = MainMenu.new()
+	_menu.camera = camera
+	_menu.started.connect(start_game)
+	_menu.quit_pressed.connect(get_tree().quit)
+	add_child(_menu)
+	if camera.mouse_control:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+
+func _open_pause() -> void:
+	_pause = PauseMenu.new()
+	_pause.rules = director.game.settings
+	_pause.closed.connect(_on_pause_closed)
+	_pause.menu_requested.connect(return_to_menu)
+	_pause.quit_requested.connect(get_tree().quit)
+	add_child(_pause)
+
+
+func _on_pause_closed() -> void:
+	_pause = null
+	if camera.mouse_control:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE if camera.focused else Input.MOUSE_MODE_CAPTURED
 
 
 func _process(_delta: float) -> void:
 	hud.show_crosshair(not camera.focused)
-	hud.set_hint(hand.hint)
+	if _viewing == 0:
+		_show_attention(seats[0])
+	var edge := camera.unproject_position(seats[_viewing].rack.top_edge()).y / get_viewport().get_visible_rect().size.y
+	post_fx.set_rack_view(camera.rack_amount, edge)
+	if _viewing == 0:
+		hud.set_hint(hand.hint)
+	else:
+		hud.set_hint("%s gözünden bakıyorsun  ·  1: kendi yerine dön  ·  2-4: diğerleri" % seats[_viewing].display_name())
 
 
-func _on_stole() -> void:
-	stolen += 1
-	hud.set_score(stolen, caught)
-	hud.flash("Çaktırmadan aldın!", Color(0.45, 1.0, 0.5))
+# Where the player looks is what the others go by (Visibility) and what his dayı shows them: head turned with his
+# view, bowed over his rack, or bent over the table looking down on the middle.
+func _show_attention(me: Seat) -> void:
+	me.look_mode = camera.mode
+	me.look_dir = -camera.global_basis.z
+	if me.buddy == null:
+		return
+	match camera.mode:
+		FocusCamera.Mode.RACK:
+			me.buddy.face(0.0)
+			me.buddy.bow(0.55)
+		FocusCamera.Mode.LEAN:
+			me.buddy.face(camera.lean_yaw)
+			me.buddy.bow(0.5, 0.45)
+		_:
+			me.buddy.face(camera.yaw)
+			me.buddy.bow(clampf(-(camera.pitch + 0.45), -0.3, 0.5))
 
 
-func _on_caught(_by: Watcher) -> void:
-	caught += 1
-	hud.set_score(stolen, caught)
-	hud.flash("YAKALANDIN!", Color(1.0, 0.3, 0.25))
+# Keys 1-4 look out of that seat's eyes (what each player will see online). Only seat 1 plays; the others are
+# for looking.
+func _unhandled_key_input(event: InputEvent) -> void:
+	var key := event as InputEventKey
+	if key == null or not key.pressed or key.echo or director.game == null:
+		return
+	if key.keycode >= KEY_1 and key.keycode <= KEY_4:
+		view_seat(key.keycode - KEY_1)
+	elif key.keycode == KEY_ESCAPE and _pause == null:
+		if hand.selection.is_empty():
+			_open_pause()
+		else:
+			hand.clear_selection()
 
 
-func _deal() -> void:
-	var deck: Array[Vector2i] = []
-	for copy in 2:
-		for color in COLOR_COUNT:
-			for number in range(1, 14):
-				deck.append(Vector2i(color, number))
-		deck.append(Vector2i(TileFactory.FAKE_OKEY, 0))
-	deck.shuffle()
+func view_seat(index: int) -> void:
+	_viewing = index
 	for i in seats.size():
-		var hand_tiles := deck.slice(0, 15 if i == 0 else 14)
-		deck = deck.slice(hand_tiles.size())
-		hand_tiles.sort()
-		seats[i].rack.set_tiles(hand_tiles)
-	var indicator: Vector2i = deck.pop_back()
-	table.show_pile(deck, indicator)
+		seats[i].set_viewed(i == index)
+	director.set_viewed(index)
+	camera.attach_to_seat(seats[index])
+	camera.look(0.0, -0.5)
+	camera.set_focused(false, true)
+	hand.process_mode = Node.PROCESS_MODE_INHERIT if index == 0 else Node.PROCESS_MODE_DISABLED
+	if index != 0:
+		hand.drop_view()
 
 
 func _capture(args: Dictionary) -> void:
 	var path: String = args["screenshot"]
 	camera.mouse_control = false
+	if args.has("view"):
+		view_seat(int(args["view"]))
 	camera.set_focused(args.has("focus"), true)
 	camera.look(float(args.get("yaw", "0")), float(args.get("pitch", "-0.5")))
 	hand.aim_override = get_viewport().get_visible_rect().size * Vector2(0.55, 0.42)
@@ -95,9 +196,20 @@ func _capture(args: Dictionary) -> void:
 		var glass := seats[0].tea
 		glass.apply_impulse(Vector3(-0.3, 0, -0.1), glass.global_basis * Vector3(0, TeaGlass.GLASS_HEIGHT, 0))
 	if args.has("caught"):
-		_on_caught(watchers[0])
+		hud.stamp("YAKALANDIN!", Color("e0402f"))
+	if args.has("lean"):
+		camera.set_mode(FocusCamera.Mode.LEAN, true)
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	for i in int(args.get("frames", "30")):
+		await get_tree().process_frame
+	if args.has("top"):
+		# Straight down over the table, seat 0 at the bottom of the picture.
+		camera.process_mode = Node.PROCESS_MODE_DISABLED
+		camera.global_transform = Transform3D(Basis.looking_at(Vector3.DOWN, Vector3.FORWARD), Vector3(0, 1.5, 0))
+		camera.fov = 100.0 # wide, from under the lamp
+		(camera.attributes as CameraAttributesPractical).dof_blur_far_enabled = false
+		(camera.attributes as CameraAttributesPractical).dof_blur_near_enabled = false
+		post_fx.blindness = 0.0
 		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	get_viewport().get_texture().get_image().save_png(path)

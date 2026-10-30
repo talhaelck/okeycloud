@@ -22,11 +22,33 @@ const HIPS_ABOVE_SEAT := 0.11
 ## Off in tests that check the resting hands.
 static var demo := true
 
-## How far the upper body leans in right now (DayiHands sets it while reaching), radians.
+## How far the upper body leans in right now (DayiHands sets it while reaching), radians, and which way (his
+## space, level): toward what he reaches for, so a reach to the side does not put his face into his own rack.
 var lean := 0.0
+var lean_dir := Vector3.FORWARD
 ## Where he is turned to look, radians about the vertical (0 = the table); shared by Posture (spine) and HeadTurn.
 var yaw := 0.0
+## How far his head is bowed (radians, + down: reading his rack) and how far he leans over the table on purpose
+## (reading the melds), on top of `lean`. Both ease toward what bow() last asked for. Everyone at the table can read
+## these: a bowed head is a man studying his tiles, a man bent over the table is not watching his own rack.
+var head_pitch := 0.0
+var bend := 0.0
+var _pitch_goal := 0.0
+var _bend_goal := 0.0
+## Each wrist as the clip has it before he leans or turns (skeleton space, set every frame by Posture), so resting
+## hands stay where they lie on the table while his body moves, like a person's would.
+var planted := {"Left": Vector3.ZERO, "Right": Vector3.ZERO}
 var hands := DayiHands.new()
+## Set before build() to make him the local player seen from his own eyes: his arms follow the player's hand
+## pivots and his head folds away; he sits like the others and `eye` (this node's space) is where the camera goes.
+var first_person: FirstPersonArms
+var eye := Vector3.ZERO
+## The model (dayi_rig/<model>.glb) and the table in front of him, in this node's space: the height of its top and
+## how far ahead its near edge is (negative = in front). Defaults are our okey table; regulars at the round
+## background tables set their own before build().
+var model := ""
+var felt_height := Table.TOP - Seat.SEAT_TOP
+var table_edge := -(Seat.CHAIR_DISTANCE - Table.SIZE * 0.5)
 var _skeleton: Skeleton3D
 var _player := AnimationPlayer.new()
 var _posture := Posture.new()
@@ -36,20 +58,22 @@ var _turn: Tween
 
 
 func build(kind: String) -> void:
-	var body: Node3D = load("res://assets/models/dayi_rig/dayi_%s.glb" % kind).instantiate()
+	var body: Node3D = load("res://assets/models/dayi_rig/%s.glb" % (model if model else "dayi_" + kind)).instantiate()
 	body.rotation.y = PI # glTF models face +Z
 	add_child(body)
 	_skeleton = body.find_children("*", "Skeleton3D", true, false)[0]
 	# Modifiers run in child order: straighten the back, then fix the hands for that back, then turn the head.
 	_posture.dayi = self
 	_skeleton.add_child(_posture)
+	if first_person:
+		_build_first_person(body)
+		return
 	_hands_on_table.dayi = self
 	var seat := get_parent().get_parent() as Seat
 	if seat:
 		_hands_on_table.rack = seat.rack
 	_skeleton.add_child(_hands_on_table)
 	_skeleton.add_child(hands)
-	hands.setup(self)
 	_head_turn.dayi = self
 	_skeleton.add_child(_head_turn)
 	body.add_child(_player)
@@ -58,8 +82,24 @@ func build(kind: String) -> void:
 	_player.play(IDLE)
 	_player.seek(randf() * _player.current_animation_length, true)
 	_seat_on_floor(body)
+	_hands_on_table.calibrate(_player, _posture)
+	hands.setup(self)
 	if demo:
 		_play_around()
+
+
+func _build_first_person(body: Node3D) -> void:
+	_skeleton.add_child(first_person)
+	body.add_child(_player)
+	_player.add_animation_library("", _load_clips())
+	_fit_to_chair(body)
+	_player.play(IDLE)
+	_player.seek(randf() * _player.current_animation_length, true)
+	_seat_on_floor(body)
+	# His eyes: above the skull's base and toward the face, for a head held up (the camera turns, not the head).
+	var head := _local("Head")
+	var size := head.distance_to(_local("HeadTop_End"))
+	eye = head + (Vector3.UP + Vector3.FORWARD) * size * 0.3
 
 
 ## Every clip in CLIPS, retargeted from the exported bone nodes onto this skeleton. Only the hips keep their
@@ -124,6 +164,17 @@ func react() -> void:
 	_head_turn.shake = 0.9
 
 
+## Bows the head (`pitch` radians, + down) and leans the body over the table (`amount` radians); eased.
+func bow(pitch: float, amount := 0.0) -> void:
+	_pitch_goal = pitch
+	_bend_goal = amount
+
+
+func _process(delta: float) -> void:
+	head_pitch = move_toward(head_pitch, _pitch_goal, delta * 1.6)
+	bend = move_toward(bend, _bend_goal, delta * 1.1)
+
+
 ## Turns his head toward a point in his own space (or back to the table).
 func look_at_point(point: Vector3, home := false) -> void:
 	turn_head(0.0 if home else atan2(-point.x, -point.z), 0.2)
@@ -133,7 +184,7 @@ func look_at_point(point: Vector3, home := false) -> void:
 
 func _play_around() -> void:
 	var seat := get_parent().get_parent() as Seat
-	if seat == null:
+	if seat == null or hands.hands.is_empty():
 		return
 	await get_tree().create_timer(randf_range(3.0, 7.0)).timeout
 	while is_inside_tree():
@@ -177,65 +228,104 @@ class Posture extends SkeletonModifier3D:
 			var pose := skeleton.get_bone_global_pose(bone)
 			pose.basis = Basis(right, float(part[1])) * pose.basis
 			skeleton.set_bone_global_pose(bone, pose)
-		# Leaning in to reach: the lower back takes most of it.
+		# Where the wrists are before leaning or turning: HandsOnTable keeps resting hands planted there.
+		for side in ["Left", "Right"]:
+			dayi.planted[side] = skeleton.get_bone_global_pose(skeleton.find_bone(BONE + side + "Hand")).origin
+		# Leaning in to reach (toward what he reaches for) or to look over the table (straight ahead): the lower
+		# back takes most of it.
+		var toward := (skeleton.global_basis.inverse() * (dayi.global_basis * Vector3.UP.cross(dayi.lean_dir))).normalized()
 		for part: Array in [["Spine", 0.6], ["Spine1", 0.4]]:
-			ArmIK.turn(skeleton, skeleton.find_bone(BONE + part[0]), right, -dayi.lean * float(part[1]))
+			var bone := skeleton.find_bone(BONE + part[0])
+			ArmIK.turn(skeleton, bone, toward, dayi.lean * float(part[1]))
+			ArmIK.turn(skeleton, bone, right, -dayi.bend * float(part[1]))
 		# Turning to look: the chest turns a little with the head.
 		for part: Array in [["Spine1", 0.15], ["Spine2", 0.2]]:
 			ArmIK.turn(skeleton, skeleton.find_bone(BONE + part[0]), Vector3.UP, dayi.yaw * float(part[1]))
 
 
-## Moves each hand the clip puts below the felt, short of the table edge, too wide, or into his rack onto the felt in
-## front of the rack: two-bone IK on the arm toward the corrected wrist, elbow bending the way the clip had it, then
-## the clip's wrist rotation is put back so the fingers keep their motion. Every hand joint and fingertip is checked.
+## Puts the clip's hands on our table: each wrist is moved by a constant offset (two-bone IK; the hand keeps its
+## rotation against the forearm, the elbow keeps its direction), so the hand follows the clip exactly and smoothly.
+## The offsets are found once by calibrate(), which plays the whole clip through and grows them until no frame puts a
+## hand joint under the felt or into the rack, and pulls the hands in front of his own rack and onto the felt.
+## (Correcting each frame from the fingertips made the whole hand jump every time a drumming finger came down.)
 class HandsOnTable extends SkeletonModifier3D:
 	const MARGIN := 0.012 # fingertips and wrist stay this far above the felt
 	const RACK_MARGIN := 0.015 # and this far out of the rack
 	const ON_FELT := 0.06 # how far past the table edge a hand that rests on the table is moved
-	const PASSES := 3
 	const MAX_X := 0.34 # the clip spreads the hands ~0.5 m; keep them in front of his own rack, out of the neighbours' way
-	var dayi: Node3D
+	const SAMPLES_PER_SECOND := 30.0
+	## A natural elbow direction (out, down, back) in the dayı's space for his right arm; x flips for the left.
+	const ELBOW := Vector3(0.6, -0.6, 0.5)
+	var dayi: RiggedDayi
 	var rack: Rack
+	## The constant wrist offset per side, in the dayı's space.
+	var shift := {"Left": Vector3.ZERO, "Right": Vector3.ZERO}
 
 	func _process_modification() -> void:
-		var skeleton := get_skeleton()
-		var to_dayi := dayi.global_transform.affine_inverse() * skeleton.global_transform
-		var to_skeleton := to_dayi.affine_inverse()
-		var felt := Table.TOP - Seat.SEAT_TOP
-		var edge := -(Seat.CHAIR_DISTANCE - Table.SIZE * 0.5)
-		for side in ["Left", "Right"]:
-			var upper := skeleton.find_bone(BONE + side + "Arm")
-			var lower := skeleton.find_bone(BONE + side + "ForeArm")
+		_apply(get_skeleton())
+
+	func _apply(skeleton: Skeleton3D) -> void:
+		var to_skeleton := skeleton.global_transform.affine_inverse() * dayi.global_transform
+		for side: String in shift:
+			var offset: Vector3 = shift[side]
 			var hand := skeleton.find_bone(BONE + side + "Hand")
-			var hand_basis := skeleton.get_bone_global_pose(hand).basis
-			# The arm may fall short of a corrected wrist, so measure again after each solve.
-			for attempt in PASSES:
-				var points := _hand_points(skeleton, hand, side, to_dayi)
-				var wrist: Vector3 = points[0]
-				var shift := Vector3.ZERO
-				if attempt == 0:
-					shift.x = signf(wrist.x) * minf(0.0, MAX_X - absf(wrist.x))
-					shift.z = minf(0.0, edge - ON_FELT - wrist.z)
-				var lowest := INF
-				for point in points:
-					lowest = minf(lowest, point.y)
-				shift.y = maxf(0.0, felt + MARGIN - lowest)
-				if rack:
-					# Back toward him by however far the deepest joint would be in or past the rack.
+			# The wrist where the clip has it before leaning and turning, so the hand stays planted on the table.
+			var target: Vector3 = dayi.planted[side] + to_skeleton.basis * offset
+			var pole := to_skeleton.basis * (ELBOW * Vector3(-1.0 if side == "Left" else 1.0, 1, 1))
+			ArmIK.reach(skeleton, skeleton.find_bone(BONE + side + "Arm"), skeleton.find_bone(BONE + side + "ForeArm"),
+				hand, target, pole)
+
+	## Plays `player`'s current clip through (with `posture` first, as in a real frame) and settles the offsets.
+	func calibrate(player: AnimationPlayer, posture: SkeletonModifier3D) -> void:
+		var skeleton := get_skeleton()
+		var at := player.current_animation_position
+		var times: Array[float] = []
+		for i in int(player.current_animation_length * SAMPLES_PER_SECOND):
+			times.append(i / SAMPLES_PER_SECOND)
+		var felt := dayi.felt_height
+		var edge := dayi.table_edge
+		# Start from the clip's average wrist: in front of his own rack and onto the felt.
+		var mean := {"Left": Vector3.ZERO, "Right": Vector3.ZERO}
+		for time in times:
+			_pose_at(skeleton, player, posture, time, false)
+			for side: String in shift:
+				mean[side] += _points(skeleton, side)[0] / times.size()
+		for side: String in shift:
+			var wrist: Vector3 = mean[side]
+			shift[side] = Vector3(signf(wrist.x) * minf(0.0, MAX_X - absf(wrist.x)), 0, minf(0.0, edge - ON_FELT - wrist.z))
+		# Then grow each offset until every frame is clear (the arm moving changes the hand a little, so repeat).
+		var owner := Vector3.BACK
+		if rack:
+			owner = (dayi.global_basis.inverse() * rack.global_basis.z).normalized()
+		for round in 8:
+			var grew := false
+			for time in times:
+				_pose_at(skeleton, player, posture, time, true)
+				for side: String in shift:
+					var lowest := INF
 					var back := 0.0
-					var owner := (dayi.global_basis.inverse() * rack.global_basis.z).normalized()
-					for point in points:
-						back = maxf(back, rack.penetration(dayi.global_transform * (point + shift), RACK_MARGIN))
-					shift += owner * back
-				if shift.length() < 0.001:
-					break
-				ArmIK.reach(skeleton, upper, lower, hand, to_skeleton * (wrist + shift))
-				var pose := skeleton.get_bone_global_pose(hand)
-				pose.basis = hand_basis
-				skeleton.set_bone_global_pose(hand, pose)
+					for point in _points(skeleton, side):
+						lowest = minf(lowest, point.y)
+						if rack:
+							back = maxf(back, rack.penetration(dayi.global_transform * point, RACK_MARGIN))
+					var up := maxf(0.0, felt + MARGIN - lowest)
+					if up > 0.0005 or back > 0.0005:
+						shift[side] += Vector3.UP * up + owner * back
+						grew = true
+			if not grew:
+				break
+		player.seek(at, true)
+
+	func _pose_at(skeleton: Skeleton3D, player: AnimationPlayer, posture: SkeletonModifier3D, time: float, hands: bool) -> void:
+		player.seek(time, true)
+		posture._process_modification()
+		if hands:
+			_apply(skeleton)
 
 	## Wrist first, then every finger joint and tip of that hand, in the dayı's space.
-	func _hand_points(skeleton: Skeleton3D, hand: int, side: String, to_dayi: Transform3D) -> Array[Vector3]:
+	func _points(skeleton: Skeleton3D, side: String) -> Array[Vector3]:
+		var to_dayi := dayi.global_transform.affine_inverse() * skeleton.global_transform
+		var hand := skeleton.find_bone(BONE + side + "Hand")
 		var points: Array[Vector3] = [to_dayi * skeleton.get_bone_global_pose(hand).origin]
 		for bone in range(hand + 1, skeleton.get_bone_count()):
 			if skeleton.get_bone_name(bone).begins_with(BONE + side + "Hand"):
@@ -257,10 +347,13 @@ class HeadTurn extends SkeletonModifier3D:
 	func _process_modification() -> void:
 		var skeleton := get_skeleton()
 		var wobble := sin(_time * 22.0) * 0.3 * shake / 0.9
-		for part: Array in [[BONE + "Neck", 0.2], [BONE + "Head", 0.45]]:
+		for part: Array in [[BONE + "Neck", 0.2, 0.35], [BONE + "Head", 0.45, 0.65]]:
 			var bone := skeleton.find_bone(part[0])
 			if bone < 0:
 				continue
 			var pose := skeleton.get_bone_global_pose(bone)
 			pose.basis = Basis(Vector3.UP, (dayi.yaw + wobble) * float(part[1])) * pose.basis
+			# Bowing: about his right-hand axis as turned by the look, so he nods toward what he looks at.
+			var right := (Basis(Vector3.UP, dayi.yaw) * (skeleton.global_basis.inverse() * (dayi.global_basis * Vector3.RIGHT))).normalized()
+			pose.basis = Basis(right, -dayi.head_pitch * float(part[2])) * pose.basis
 			skeleton.set_bone_global_pose(bone, pose)

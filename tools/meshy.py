@@ -5,6 +5,7 @@ The key comes from the MESHY_API_KEY environment variable or the git-ignored .en
     python tools/meshy.py balance                         check the key and remaining credits
     python tools/meshy.py image <image.png> <name>        image to 3D (textured, PBR)
     python tools/meshy.py picture "<prompt>" <name> [model]  text to image (A-pose, plain background) -> raw/meshy/<name>.png
+    python tools/meshy.py photo "<prompt>" <name> [model]    text to image, 4:3, no pose (wall pictures)
     python tools/meshy.py text "<prompt>" <name>          text to 3D (preview, then textured refine)
     python tools/meshy.py rig <model.glb> <name> [height] rig a standing humanoid (face toward glTF +Z)
     python tools/meshy.py animate <rig task id> <name> <action id>...   preset animations, one clip each
@@ -92,10 +93,13 @@ def main(cmd, *rest):
         generate("/v1/image-to-3d", {"image_url": data_uri(image), "should_texture": True, "enable_pbr": True,
                                      "should_remesh": True, "target_polycount": 100000, "pose_mode": "a-pose",
                                      "target_formats": ["glb"]}, name)
-    elif cmd == "picture":
+    elif cmd in ("picture", "photo"):
         prompt, name = rest[:2]
-        body = {"ai_model": rest[2] if len(rest) > 2 else "nano-banana-2", "prompt": prompt, "pose_mode": "a-pose",
-                "aspect_ratio": "3:4"}
+        body = {"ai_model": rest[2] if len(rest) > 2 else "nano-banana-2", "prompt": prompt, "aspect_ratio": "3:4"}
+        if cmd == "picture":
+            body["pose_mode"] = "a-pose"  # characters to be turned into 3D; a photo for a wall needs no pose
+        else:
+            body["aspect_ratio"] = "4:3"
         task = wait("/v1/text-to-image", call("POST", "/v1/text-to-image", body)["result"])
         download(task["image_urls"][0], name + ".png")
     elif cmd == "text":

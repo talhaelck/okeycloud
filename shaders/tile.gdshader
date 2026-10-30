@@ -11,6 +11,9 @@ uniform vec3 highlight_color : source_color = vec3(1.0, 0.78, 0.25);
 instance uniform float cell = 53.0;
 // 0..1 hover glow.
 instance uniform float highlight = 0.0;
+// 0 or 1: picked with Ctrl+click to be moved together (a cool blue rim, apart from the warm hover).
+uniform vec3 selected_color : source_color = vec3(0.35, 0.7, 1.0);
+instance uniform float selected = 0.0;
 
 varying vec3 local_pos;
 
@@ -37,5 +40,5 @@ void fragment() {
 	SPECULAR = 0.55;
 	// Hover: a warm rim glow, so the number stays readable.
 	float rim = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 2.0);
-	EMISSION = highlight_color * highlight * (0.08 + rim * 0.9);
+	EMISSION = highlight_color * highlight * (0.08 + rim * 0.9) + selected_color * selected * (0.12 + rim * 1.2);
 }

@@ -1,7 +1,8 @@
 """Turns a Mixamo download (FBX, T-pose, 65-bone skeleton with fingers) into a game GLB without animation, with the
 caricature head and hands shrunk in the mesh (proportions.py). Motion comes from Mixamo clips (scripts/world/rigged_dayi.gd).
 
-    blender -b --factory-startup -P tools/blender/mixamo_import.py -- <raw/mixamo/indir/x.fbx> <assets/models/dayi_rig/x.glb>
+    blender -b --factory-startup -P tools/blender/mixamo_import.py -- <raw/mixamo/indir/x.fbx> <assets/models/dayi_rig/x.glb> [--no-fingers-ok]
+(--no-fingers-ok: accept a rig without thumb bones; it can sit and be seen, but not handle tiles.)
 """
 import os
 import sys
@@ -32,6 +33,10 @@ def main():
     bpy.context.view_layer.objects.active = next(o for o in bpy.context.scene.objects if o.type == "ARMATURE")
     bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     armature = bpy.context.view_layer.objects.active
+    hand_bones = [b.name for b in armature.data.bones if "RightHand" in b.name]
+    if "--no-fingers-ok" not in args() and (not any("Thumb" in n for n in hand_bones) or not any("Middle" in n for n in hand_bones)):
+        sys.exit("NO_FINGERS: this rig has no thumb/middle finger bones (%d bones). In Mixamo's auto-rigger pick "
+                 "Skeleton LOD 'Standard Skeleton (65)' and download again." % len(armature.data.bones))
     mesh = next(o for o in bpy.context.scene.objects if o.type == "MESH")
     print("NECK_REWEIGHTED", fix_neck(armature, mesh), "vertices")
     shrink(armature, mesh, HEAD_SCALE, HAND_SCALE)

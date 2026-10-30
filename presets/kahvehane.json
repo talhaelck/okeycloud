@@ -1,0 +1,10 @@
+{
+	"title": "Kahvehane usulü",
+	"rules": {
+		"open_must_beat_previous": true,
+		"pairs_must_beat_previous": true,
+		"turn_time_limit": 45,
+		"auto_arrange_allowed": false,
+		"group_hints": false
+	}
+}
